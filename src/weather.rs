@@ -107,7 +107,7 @@ pub fn deserialize_unit<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Un
     )
 }
 pub fn deserialize_enabled<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
-    Ok(Value::deserialize(deserializer)? != Value::Bool(false))
+    Ok(Value::deserialize(deserializer)? == Value::Bool(true))
 }
 pub fn format_temperature(celsius: f64, unit: Unit) -> String {
     let value = if unit == Unit::Fahrenheit {

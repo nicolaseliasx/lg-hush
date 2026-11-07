@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::Path};
 
-const STATE: &str = "/var/lib/luma-home";
-const CONFIG: &str = "/var/lib/luma-home/state.json";
-const STAGE: &str = "/var/lib/luma-home/app";
-const HOOK: &str = "/var/lib/webosbrew/init.d/64-luma-home";
-const MARKER: &str = "/var/run/luma-home";
+const STATE: &str = "/var/lib/ncls-luma-home";
+const CONFIG: &str = "/var/lib/ncls-luma-home/state.json";
+const STAGE: &str = "/var/lib/ncls-luma-home/app";
+const HOOK: &str = "/var/lib/webosbrew/init.d/64-ncls-luma-home";
+const MARKER: &str = "/var/run/ncls-luma-home";
 pub const HOME: &str = "com.webos.app.home";
 pub const FULL_HOME: &str = "com.webos.app.fullhome";
 fn default_home() -> String {
@@ -79,6 +79,46 @@ impl<'a, S: System> Home<'a, S> {
     }
     fn exists(&self, path: impl AsRef<Path>) -> bool {
         system::exists(self.system, path)
+    }
+    fn reject_upstream_integration(&self) -> Result<()> {
+        for path in [
+            "/var/run/luma-home",
+            "/var/run/luma-home-target",
+            "/var/lib/webosbrew/init.d/64-luma-home",
+            "/var/lib/webosbrew/init.d/65-luma",
+        ] {
+            if self.exists(path) {
+                return Err(
+                    "An upstream Luma Home or boot integration exists; resolve it first".into(),
+                );
+            }
+        }
+        let state = self.system.path(Path::new("/var/lib/luma-home/state.json"));
+        match fs::symlink_metadata(&state) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return Err("Upstream Luma Home state is not a regular file".into());
+                }
+                let value = system::json(self.system, "/var/lib/luma-home/state.json")?;
+                if value.get("enabled").and_then(Value::as_bool) != Some(false) {
+                    return Err("Upstream Luma Home state is active or invalid".into());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Cannot inspect upstream Luma Home state: {error}")),
+        }
+        Ok(())
+    }
+    fn preflight(&self) -> Result<()> {
+        self.reject_upstream_integration()?;
+        for id in [HOME, FULL_HOME] {
+            let home = Self::new(self.system, id)?;
+            if home.foreign_mount()? {
+                return Err("Another integration is mounted over LG Home".into());
+            }
+            home.owned_mount()?;
+        }
+        Ok(())
     }
     fn luna(&self, method: &str, payload: Value) -> Result<Value> {
         system::luna(
@@ -333,6 +373,7 @@ impl<'a, S: System> Home<'a, S> {
         Ok(())
     }
     pub fn apply(&self, config: &Config, open: bool) -> Result<()> {
+        self.preflight()?;
         if !self.exists(Path::new(&config.app_dir).join("luma")) {
             return Err("Luma is no longer installed".into());
         }
@@ -410,6 +451,7 @@ impl<'a, S: System> Home<'a, S> {
         Ok(())
     }
     pub fn install(&self, app: &Path) -> Result<()> {
+        self.preflight()?;
         let physical = fs::canonicalize(self.system.path(app)).map_err(|e| e.to_string())?;
         let base = self.system.path(Path::new("/"));
         let app = if base == Path::new("/") {
@@ -448,9 +490,9 @@ impl<'a, S: System> Home<'a, S> {
         }
         self.owned_mount()?;
         if self.exists(HOOK) && !hook_owned(self.system) {
-            return Err("64-luma-home is already in use".into());
+            return Err("64-ncls-luma-home is already in use".into());
         }
-        if self.exists("/var/lib/webosbrew/init.d/65-luma") {
+        if self.exists("/var/lib/webosbrew/init.d/65-ncls-luma") {
             return Err(
                 "Disable the standalone cold-boot hook with autostart.sh disable first".into(),
             );
@@ -535,7 +577,7 @@ fn unescape(s: &str) -> String {
 pub fn exe_owned(root: &str) -> bool {
     root.strip_suffix("//deleted")
         .unwrap_or(root)
-        .ends_with("/com.ecklf.luma/luma")
+        .ends_with("/cc.ncls.luma/luma")
 }
 pub fn home_process(
     args: &[String],
@@ -580,7 +622,7 @@ pub fn method<'a>(release: &str, stock: &Value, id: &str) -> Result<&'a str> {
 }
 pub fn hook_owned(system: &impl System) -> bool {
     fs::read_link(system.path(Path::new(HOOK)))
-        .is_ok_and(|p| p == system.path(Path::new("/var/lib/luma-home/home.sh")))
+        .is_ok_and(|p| p == system.path(Path::new("/var/lib/ncls-luma-home/home.sh")))
 }
 pub fn load(system: &impl System) -> Result<Option<Config>> {
     if !system::exists(system, CONFIG) {
@@ -598,6 +640,10 @@ pub fn dispatch(
     selected: Option<&str>,
 ) -> Result<Value> {
     system::root(system)?;
+    if command == "preflight" {
+        Home::new(system, HOME)?.preflight()?;
+        return Ok(json!({"returnValue":true}));
+    }
     let saved = load(system)?;
     let id = selected
         .filter(|id| !id.is_empty())

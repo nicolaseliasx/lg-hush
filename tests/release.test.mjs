@@ -9,6 +9,44 @@ import { isReleaseMerge, isVersionIncrease } from '../tools/release-gate.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const metadata = ['appinfo.json', 'Cargo.toml', 'Cargo.lock', 'readme.md'];
 
+test('PR test package instructions identify the fork package', async () => {
+  const workflow = await fs.readFile(path.join(root, '.github/workflows/pr-test-ipk.yml'), 'utf8');
+  assert.match(workflow, /cc\.ncls\.luma_\*_arm\.ipk/);
+  assert.match(workflow, /"id":"cc\.ncls\.luma"/);
+  assert.doesNotMatch(workflow, /com\.ecklf\.luma/);
+});
+
+test('fork package uses its own identity and release repository by default', async (t) => {
+  const directory = await fs.mkdtemp(path.join(root, '.build', 'fork-feed-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  await fs.mkdir(path.join(directory, 'tools'));
+  await fs.mkdir(path.join(directory, 'dist'));
+  await fs.mkdir(path.join(directory, '.build', 'package'), { recursive: true });
+  await fs.mkdir(path.join(directory, 'assets'));
+  const manifest = JSON.parse(await fs.readFile(path.join(root, 'appinfo.json'), 'utf8'));
+  assert.equal(manifest.id, 'cc.ncls.luma');
+  await fs.copyFile(path.join(root, 'appinfo.json'), path.join(directory, 'appinfo.json'));
+  await fs.copyFile(path.join(root, 'package.json'), path.join(directory, 'package.json'));
+  await fs.copyFile(
+    path.join(root, 'tools/repository.mjs'),
+    path.join(directory, 'tools/repository.mjs'),
+  );
+  await fs.writeFile(
+    path.join(directory, 'dist', `${manifest.id}_${manifest.version}_arm.ipk`),
+    'fixture',
+  );
+  await fs.writeFile(path.join(directory, '.build/package', manifest.largeIcon), 'icon');
+  await fs.writeFile(path.join(directory, 'assets/homebrew-description.html'), 'description');
+  const result = spawnSync(process.execPath, [path.join(directory, 'tools/repository.mjs')], {
+    env: { PATH: process.env.PATH },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const feed = JSON.parse(await fs.readFile(path.join(directory, 'dist/repo.json'), 'utf8'));
+  assert.equal(feed.packages[0].manifest.sourceUrl, 'https://github.com/nicolaseliasx/lg-luma');
+  assert.match(feed.packages[0].manifest.ipkUrl, /\/cc\.ncls\.luma_/);
+});
+
 async function fixture(t, version = '2.0.4') {
   const scratch = path.join(root, '.build');
   await fs.mkdir(scratch, { recursive: true });
@@ -50,7 +88,7 @@ test('version sync changes only release versions and is idempotent', async (t) =
   );
   assert.equal(
     after[3],
-    before[3].replaceAll(`com.ecklf.luma_${previous}_arm.ipk`, 'com.ecklf.luma_3.1.0_arm.ipk'),
+    before[3].replaceAll(`cc.ncls.luma_${previous}_arm.ipk`, 'cc.ncls.luma_3.1.0_arm.ipk'),
   );
   assert.deepEqual((await syncVersions(directory, { check: true })).changed, []);
   assert.deepEqual((await syncVersions(directory)).changed, []);

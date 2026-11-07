@@ -318,7 +318,7 @@ impl State {
             let target = if self.available_update.is_some() {
                 Target::InstallUpdate
             } else {
-                Target::CheckUpdates
+                Target::Setting(3)
             };
             if self.focus != target {
                 self.focus = target;
@@ -362,7 +362,7 @@ impl State {
                     }
                 }
                 if self.focus == Target::InstallUpdate {
-                    self.focus = Target::CheckUpdates;
+                    self.focus = Target::Setting(3);
                     self.pressed = None;
                 }
             }
@@ -977,7 +977,7 @@ impl State {
             ),
             WIDGETS_SECTION => Target::Widget(4),
             SYSTEM_SECTION if self.available_update.is_some() => Target::InstallUpdate,
-            SYSTEM_SECTION => Target::CheckUpdates,
+            SYSTEM_SECTION => Target::Setting(3),
             _ => Target::Setting(0),
         }
     }
@@ -2096,12 +2096,7 @@ impl State {
                 }
             }
             Target::CheckUpdates => {
-                if !self.update_busy() {
-                    self.update = crate::update::InstallStatus::Idle;
-                    self.update_status = crate::update::Status::Checking;
-                    self.update_check_requested = true;
-                    self.dirty = true;
-                }
+                // This fork has no update feed yet.
             }
             Target::Tile(_) => self.options(),
             Target::TileTest(id) => {

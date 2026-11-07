@@ -17,7 +17,7 @@ mod wallpaper_tests;
 mod input_refresh_tests;
 
 fn ready() -> State {
-    let mut state = State::new(Preferences::default());
+    let mut state = State::new(Preferences::legacy_defaults());
     state.set_inventory(demo_inventory(), None);
     state
 }
@@ -387,7 +387,7 @@ fn asset_loading_and_unknown_app_cards_do_not_require_collected_artwork() {
     std::fs::write(root.join("font-metrics.json"), "{}").unwrap();
     for webos in [false, true] {
         let assets = view::Assets::load(root.clone(), webos).unwrap();
-        let mut state = State::new(Preferences::default());
+        let mut state = State::new(Preferences::legacy_defaults());
         state.set_inventory(
             crate::model::Inventory {
                 apps: vec![App::new("com.example.regional", "Regional App")],
@@ -413,7 +413,7 @@ fn asset_loading_and_unknown_app_cards_do_not_require_collected_artwork() {
 
 #[test]
 fn auto_input_visibility_requires_a_positive_connection_report() {
-    let mut preferences = Preferences::default();
+    let mut preferences = Preferences::legacy_defaults();
     let mut input = Input {
         id: "com.webos.app.hdmi1".into(),
         title: "Console".into(),
@@ -442,7 +442,7 @@ fn preferences_round_trip_and_corrupt_data_is_not_silently_overwritten() {
     let mut preferences = Preferences {
         favorites: Some(vec![]),
         background: "forest".into(),
-        ..Preferences::default()
+        ..Preferences::legacy_defaults()
     };
     preferences
         .input_modes
@@ -899,7 +899,7 @@ fn system_version_is_inside_the_update_status_card_without_a_separate_row() {
     assert_eq!(state.hit_test(&system.controls, 900., 200.), None);
     state.focus = Target::Sidebar(crate::state::SYSTEM_SECTION);
     state.direction(Direction::Right, &system.controls);
-    assert_eq!(state.focus, Target::CheckUpdates);
+    assert_eq!(state.focus, Target::Setting(3));
 }
 
 #[test]
@@ -921,8 +921,6 @@ fn system_category_owns_refresh_and_quit_and_restores_sidebar_focus() {
     assert_eq!(state.focus, Target::Sidebar(crate::state::SYSTEM_SECTION));
     assert_eq!(state.section, crate::state::SYSTEM_SECTION);
     state.direction(Direction::Right, &controls(&state));
-    assert_eq!(state.focus, Target::CheckUpdates);
-    state.direction(Direction::Down, &controls(&state));
     assert_eq!(state.focus, Target::Setting(3));
     assert_eq!(state.activate(), vec![Effect::Reload]);
     state.direction(Direction::Down, &controls(&state));
@@ -1042,7 +1040,7 @@ fn background_sidebar_right_focuses_upload_and_ok_restores_the_applied_backgroun
     assert_eq!(state.focus, Target::UploadWallpaper);
     state.back();
     state.activate();
-    assert_eq!(state.focus, Target::Background(6));
+    assert_eq!(state.focus, Target::Background(7));
 }
 
 #[test]
@@ -1237,6 +1235,8 @@ fn opening_side_popup_preserves_card_artwork_geometry_with_or_without_captions()
 fn protected_apps_cannot_be_deleted_through_ui_or_worker() {
     for id in [
         crate::platform::APP_ID,
+        "cc.ncls.luma",
+        "com.ecklf.luma",
         crate::platform::HOME_ID,
         "com.webos.app.livetv",
         "com.webos.app.browser",
@@ -1842,7 +1842,7 @@ fn hdmi_plug_in_reports_the_cable_state_when_connected_only_means_present() {
         ]
     );
     assert_eq!(inputs[1].title, "AVR-X1800H");
-    let preferences = Preferences::default();
+    let preferences = Preferences::legacy_defaults();
     let visible: Vec<_> = inputs
         .iter()
         .filter(|input| preferences.input_visible(input))
@@ -1901,7 +1901,7 @@ fn input_names_are_sanitized_and_old_preferences_load_without_them() {
 
 #[test]
 fn custom_input_names_keep_the_label_port_and_status_as_detail() {
-    let mut preferences = Preferences::default();
+    let mut preferences = Preferences::legacy_defaults();
     let input = Input {
         id: "com.webos.app.hdmi2".into(),
         title: "AVR-X1800H".into(),
@@ -2102,7 +2102,7 @@ fn prewarm_waits_while_recents_replaces_the_page() {
 
 #[test]
 fn failed_first_inventory_keeps_loading_until_retries_are_used_up() {
-    let mut state = State::new(Preferences::default());
+    let mut state = State::new(Preferences::legacy_defaults());
     state.loading = true;
     for attempt in 1..=crate::state::INVENTORY_RETRIES {
         assert_eq!(
@@ -2125,7 +2125,7 @@ fn failed_first_inventory_keeps_loading_until_retries_are_used_up() {
 
 #[test]
 fn inventory_success_resets_failures_and_later_failures_show_at_once() {
-    let mut state = State::new(Preferences::default());
+    let mut state = State::new(Preferences::legacy_defaults());
     state.loading = true;
     assert!(state.inventory_failed("timeout".into()).is_some());
     state.set_inventory(demo_inventory(), None);
@@ -2824,9 +2824,31 @@ fn tv_settings_button_is_centered_alongside_navigation() {
 }
 
 #[test]
+fn fork_defaults_are_pure_black_and_hide_every_widget() {
+    for preferences in [
+        Preferences::default(),
+        serde_json::from_str::<Preferences>("{}").unwrap(),
+    ] {
+        assert_eq!(preferences.background, "onyx");
+        assert!(!preferences.show_weather);
+        assert!(!preferences.show_greeting);
+        assert!(!preferences.show_date);
+        assert!(!preferences.wallpaper_gradient);
+    }
+    assert_eq!(crate::model::BACKGROUNDS[0].0, "onyx");
+    let mut unknown: Preferences = serde_json::from_str(r#"{"background":"gone"}"#).unwrap();
+    unknown.sanitize();
+    assert_eq!(unknown.background, "onyx");
+    let malformed: Preferences = serde_json::from_str(r#"{"show_weather":"off"}"#).unwrap();
+    assert!(!malformed.show_weather);
+}
+
+#[test]
 fn greeting_visibility_toggle_persists_without_clearing_name_or_hiding_date() {
     use crate::{renderer::Draw, state::Subpage};
-    let legacy: Preferences = serde_json::from_str(r#"{"greeting_name":"Ana"}"#).unwrap();
+    let legacy: Preferences =
+        serde_json::from_str(r#"{"greeting_name":"Ana","show_greeting":true,"show_date":true}"#)
+            .unwrap();
     assert!(legacy.show_greeting);
     let mut state = ready();
     state.preferences = legacy;
@@ -2891,7 +2913,7 @@ fn greeting_visibility_toggle_persists_without_clearing_name_or_hiding_date() {
 #[test]
 fn date_widget_settings_persist_and_restore_parent_focus() {
     use crate::{model::DateFormat, state::Subpage};
-    let legacy: Preferences = serde_json::from_str("{}").unwrap();
+    let legacy: Preferences = serde_json::from_str(r#"{"show_date":true}"#).unwrap();
     assert!(legacy.show_date);
     assert_eq!(legacy.date_format, DateFormat::Localized);
     let mut state = ready();
@@ -3026,40 +3048,36 @@ fn update_card_shows_both_versions_and_explicitly_starts_installation() {
 }
 
 #[test]
-fn update_status_card_only_claims_latest_after_success_and_allows_single_flight_retry() {
-    use crate::{renderer::Draw, update::Status};
+fn disabled_updates_offer_no_check_action() {
     let mut state = ready();
     state.open(2);
     state.section = crate::state::SYSTEM_SECTION;
+    assert!(
+        !controls(&state)
+            .iter()
+            .any(|control| control.target == Target::CheckUpdates)
+    );
+    state.focus = Target::Sidebar(crate::state::SYSTEM_SECTION);
+    state.direction(Direction::Right, &controls(&state));
+    assert_eq!(state.focus, Target::Setting(3));
     state.focus = Target::CheckUpdates;
-    assert_eq!(state.update_status, Status::Unchecked);
-    assert!(!scene(&state).draw.iter().any(|draw| matches!(draw,
-        Draw::Text(label, ..) if label == state.preferences.language.t("latestVersionInstalled")
-    )));
     assert!(state.activate().is_empty());
-    assert_eq!(state.update_status, Status::Checking);
-    assert!(std::mem::take(&mut state.update_check_requested));
-    state.activate();
     assert!(!state.update_check_requested);
-    state.update_response(Err("offline".into()));
-    assert_eq!(state.update_status, Status::Failed);
-    assert!(!scene(&state).draw.iter().any(|draw| matches!(draw,
+}
+
+#[test]
+fn update_status_card_keeps_version_visible_without_claiming_a_check() {
+    use crate::renderer::Draw;
+    let mut state = ready();
+    state.open(2);
+    state.section = crate::state::SYSTEM_SECTION;
+    let rendered = scene(&state);
+    assert!(rendered.draw.iter().any(|draw| matches!(draw,
+        Draw::Text(label, ..) if label == &state.preferences.language.format("currentVersion", &[("current", "test")])
+    )));
+    assert!(!rendered.draw.iter().any(|draw| matches!(draw,
         Draw::Text(label, ..) if label == state.preferences.language.t("latestVersionInstalled")
     )));
-    state.activate();
-    assert!(std::mem::take(&mut state.update_check_requested));
-    state.update_response(Ok(None));
-    assert_eq!(state.update_status, Status::Checked);
-    for key in ["latestVersionInstalled", "checkAgain"] {
-        assert!(scene(&state).draw.iter().any(|draw| matches!(draw,
-            Draw::Text(label, ..) if label == state.preferences.language.t(key)
-        )));
-    }
-    state.activate();
-    state.update_response(Ok(Some("9.0.0".into())));
-    assert_eq!(state.focus, Target::InstallUpdate);
-    state.update_response(Err("offline".into()));
-    assert_eq!(state.available_update.as_deref(), Some("9.0.0"));
 }
 
 #[test]
@@ -3203,18 +3221,12 @@ fn tiles_edited_elsewhere_join_and_leave_home_like_tv_edits() {
 }
 
 #[test]
-fn update_card_shows_progress_restores_retry_and_ignores_presses_while_busy() {
+fn update_preview_shows_progress_and_ignores_presses_while_busy() {
     use crate::update::{InstallStatus, Response, Status};
     let mut state = ready();
     state.open(2);
     state.section = crate::state::SYSTEM_SECTION;
     state.focus = Target::CheckUpdates;
-    assert!(state.activate().is_empty());
-    assert_eq!(state.update_status, Status::Checking);
-    assert!(
-        state.activate().is_empty(),
-        "no second check while one runs"
-    );
     state.update_response(Ok(Some("9.9.9".into())));
     assert!(scene(&state).draw.iter().any(|draw| {
         matches!(draw, crate::renderer::Draw::Text(text, ..) if text == "Install 9.9.9")
@@ -3259,13 +3271,10 @@ fn update_card_shows_progress_restores_retry_and_ignores_presses_while_busy() {
     assert!(state.activate().is_empty());
     state.pressed = Some(Target::InstallUpdate);
     state.install_response(Response::Finished(Err("disk full".into())));
-    assert_eq!(state.focus, Target::CheckUpdates);
+    assert_eq!(state.focus, Target::Setting(3));
     assert!(state.pressed.is_none());
     assert!(state.available_update.is_none());
     assert!(!state.update_busy());
-    state.activate();
-    assert_eq!(state.update_status, Status::Checking);
-    assert_eq!(state.update, InstallStatus::Idle);
     state.install_response(Response::Finished(Ok(())));
     assert_eq!(state.update_status, Status::Unchecked);
 }

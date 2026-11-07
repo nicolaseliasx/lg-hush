@@ -552,7 +552,7 @@ fn log_home_output() {
         .create(true)
         .write(true)
         .truncate(true)
-        .open("/tmp/luma-home.log")
+        .open("/tmp/ncls-luma-home.log")
     {
         unsafe { libc::dup2(file.into_raw_fd(), 2) };
     }
@@ -1247,7 +1247,7 @@ fn run() -> Result<(), String> {
                 focused = true;
                 foreground.confirmed();
             }
-            // As Home, these go to /tmp/luma-home.log and show whether a relaunch reached the
+            // As Home, these go to /tmp/ncls-luma-home.log and show whether a relaunch reached the
             // compositor.
             if options.webos_home
                 && let Event::Window { win_event, .. } = &event

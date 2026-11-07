@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
-const DIR: &str = "/media/developer/apps/usr/palm/applications/com.ecklf.luma";
+const DIR: &str = "/media/developer/apps/usr/palm/applications/cc.ncls.luma";
 const EXE: &str = "/usr/bin/com.webos.app.home";
 struct Fixture {
     root: PathBuf,
@@ -55,7 +55,7 @@ impl Fixture {
             stuck: Cell::new(false),
         };
         for dir in [
-            "/var/lib/luma-home/app",
+            "/var/lib/ncls-luma-home/app",
             "/var/lib/webosbrew/init.d",
             "/var/run",
             "/proc/self",
@@ -281,15 +281,97 @@ fn home_methods_reject_unknown_firmware_or_lifecycle() {
     assert!(home::Home::new(&Fixture::new(), "../other").is_err());
 }
 #[test]
+fn disabled_upstream_state_is_preserved_and_does_not_block_home() {
+    let f = Fixture::new();
+    let path = "/var/lib/luma-home/state.json";
+    let state = br#"{"enabled":false,"appDir":"original"}"#;
+    f.put(path, state);
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    assert_eq!(f.read(path), state);
+}
+
+#[test]
+fn upstream_state_must_be_valid_and_disabled_before_home_changes() {
+    for state in [br#"{"enabled":true}"#.as_slice(), br#"{}"#, b"malformed"] {
+        let f = Fixture::new();
+        let path = "/var/lib/luma-home/state.json";
+        f.put(path, state);
+        assert!(home::dispatch(&f, "enable", Some(DIR), None).is_err());
+        assert_eq!(f.read(path), state);
+        assert_eq!(f.read(EXE), b"stock-com.webos.app.home");
+        assert!(f.calls().is_empty());
+    }
+    let f = Fixture::new();
+    let state = f.p("/var/lib/luma-home/state.json");
+    fs::create_dir_all(state.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink("missing", &state).unwrap();
+    assert!(home::dispatch(&f, "preflight", None, None).is_err());
+    assert!(
+        fs::symlink_metadata(state)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+#[test]
+fn upstream_home_markers_prevent_takeover_without_changes() {
+    for marker in [
+        "/var/run/luma-home",
+        "/var/run/luma-home-target",
+        "/var/lib/luma-home/state.json",
+        "/var/lib/webosbrew/init.d/64-luma-home",
+        "/var/lib/webosbrew/init.d/65-luma",
+    ] {
+        let f = Fixture::new();
+        f.put(marker, b"upstream");
+        assert!(
+            home::dispatch(&f, "enable", Some(DIR), None).is_err(),
+            "{marker}"
+        );
+        assert!(
+            home::Home::new(&f, home::HOME)
+                .unwrap()
+                .apply(&f.config("executable", home::HOME), false)
+                .is_err()
+        );
+        assert_eq!(f.read(marker), b"upstream");
+        assert_eq!(f.read(EXE), b"stock-com.webos.app.home");
+        assert!(f.calls().is_empty());
+    }
+}
+
+#[test]
+fn upstream_executable_mount_prevents_takeover_without_unmounting() {
+    let f = Fixture::new();
+    let original = "/media/developer/apps/usr/palm/applications/com.ecklf.luma/luma";
+    f.put(original, b"upstream");
+    f.mount(original, EXE);
+    assert!(home::dispatch(&f, "preflight", None, None).is_err());
+    assert!(home::dispatch(&f, "enable", Some(DIR), None).is_err());
+    assert_eq!(f.read(EXE), b"upstream");
+    assert!(!f.calls().iter().any(|call| call.contains("umount")));
+}
+
+#[test]
+fn only_fork_executable_is_owned() {
+    assert!(home::exe_owned(
+        "/developer/apps/usr/palm/applications/cc.ncls.luma/luma"
+    ));
+    assert!(!home::exe_owned(
+        "/developer/apps/usr/palm/applications/com.ecklf.luma/luma"
+    ));
+}
+#[test]
 fn only_luma_mounts_are_owned_even_after_package_replacement() {
     for root in [
-        "/developer/apps/usr/palm/applications/com.ecklf.luma/luma",
-        "/cryptofs/apps/usr/palm/applications/com.ecklf.luma/luma//deleted",
+        "/developer/apps/usr/palm/applications/cc.ncls.luma/luma",
+        "/cryptofs/apps/usr/palm/applications/cc.ncls.luma/luma//deleted",
     ] {
         assert!(home::exe_owned(root));
     }
     assert!(!home::exe_owned("/var/lib/other/launcher"));
-    assert!(!home::exe_owned("/com.ecklf.luma/luma/../other"));
+    assert!(!home::exe_owned("/cc.ncls.luma/luma/../other"));
 }
 #[test]
 fn executable_apply_mounts_marks_and_launches_then_restore_unmounts() {
@@ -298,10 +380,13 @@ fn executable_apply_mounts_marks_and_launches_then_restore_unmounts() {
     let c = f.config("executable", home::HOME);
     h.apply(&c, true).unwrap();
     assert!(system::same_file(&f, EXE, format!("{DIR}/luma")));
-    assert_eq!(f.read("/var/run/luma-home"), format!("{APP}\n").as_bytes());
+    assert_eq!(
+        f.read("/var/run/ncls-luma-home"),
+        format!("{APP}\n").as_bytes()
+    );
     assert_eq!(f.front.borrow().as_str(), home::HOME);
     h.restore(&c).unwrap();
-    assert!(!system::exists(&f, "/var/run/luma-home"));
+    assert!(!system::exists(&f, "/var/run/ncls-luma-home"));
     assert_eq!(f.read(EXE), format!("stock-{}", home::HOME).as_bytes());
 }
 #[test]
@@ -312,7 +397,7 @@ fn fullhome_round_trip_and_persisted_target_keep_their_identity() {
     assert_eq!(c.home_id, home::FULL_HOME);
     assert!(c.enabled);
     assert_eq!(
-        f.read("/var/run/luma-home-target"),
+        f.read("/var/run/ncls-luma-home-target"),
         format!("{}\n", home::FULL_HOME).as_bytes()
     );
     let status = home::dispatch(&f, "status", None, None).unwrap();
@@ -323,7 +408,7 @@ fn fullhome_round_trip_and_persisted_target_keep_their_identity() {
         f.read("/usr/bin/com.webos.app.fullhome"),
         b"stock-com.webos.app.fullhome"
     );
-    assert!(!system::exists(&f, "/var/run/luma-home-target"));
+    assert!(!system::exists(&f, "/var/run/ncls-luma-home-target"));
 }
 #[test]
 fn installation_under_a_symlinked_temporary_parent_stays_inside_the_root() {
@@ -345,7 +430,10 @@ fn installation_under_a_symlinked_temporary_parent_stays_inside_the_root() {
 fn copied_recovery_binary_and_shell_survive_package_removal() {
     let f = Fixture::new();
     home::dispatch(&f, "enable", Some(DIR), None).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/luma-helper"), b"native-helper");
+    assert_eq!(
+        f.read("/var/lib/ncls-luma-home/luma-helper"),
+        b"native-helper"
+    );
     fs::remove_dir_all(f.p(DIR)).unwrap();
     home::dispatch(&f, "disable", None, None).unwrap();
     assert_eq!(f.read(EXE), b"stock-com.webos.app.home");
@@ -398,7 +486,7 @@ fn failed_launch_retries_once_then_restores_stock_files() {
             .contains("did not come")
     );
     assert_eq!(f.read(EXE), b"stock-com.webos.app.home");
-    assert!(!system::exists(&f, "/var/run/luma-home"));
+    assert!(!system::exists(&f, "/var/run/ncls-luma-home"));
     assert_eq!(
         f.calls().iter().filter(|s| s.contains("/launch ")).count(),
         2
@@ -441,7 +529,7 @@ fn changing_an_enabled_target_or_using_a_foreign_hook_is_rejected() {
     system::link(
         &f,
         "/other/home.sh",
-        "/var/lib/webosbrew/init.d/64-luma-home",
+        "/var/lib/webosbrew/init.d/64-ncls-luma-home",
     )
     .unwrap();
     assert!(
@@ -454,7 +542,7 @@ fn changing_an_enabled_target_or_using_a_foreign_hook_is_rejected() {
 fn old_configuration_without_method_or_target_is_readable() {
     let f = Fixture::new();
     f.put_json(
-        "/var/lib/luma-home/state.json",
+        "/var/lib/ncls-luma-home/state.json",
         json!({"enabled":false,"appDir":DIR,"stock":stock(home::HOME),"futureFlag":42}),
     );
     let c = home::load(&f).unwrap().unwrap();
@@ -644,13 +732,13 @@ fn invalid_ids_and_unrelated_manifests_cannot_select_private_artwork() {
 fn splash_updates_tile_and_only_the_enabled_own_manifest_stage() {
     let f = Fixture::new();
     f.put_json(
-        "/var/lib/luma-home/state.json",
+        "/var/lib/ncls-luma-home/state.json",
         json!({"enabled":true,"method":"manifest","appDir":DIR}),
     );
-    f.put("/var/lib/luma-home/app/splash.png", b"old");
+    f.put("/var/lib/ncls-luma-home/app/splash.png", b"old");
     files::sync_splash(&f, Path::new(DIR), "forest").unwrap();
     assert_eq!(f.read(&format!("{DIR}/splash.png")), b"forest");
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"forest");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"forest");
     let before = fs::metadata(f.p(&format!("{DIR}/splash.png")))
         .unwrap()
         .modified()
@@ -672,10 +760,10 @@ fn executable_other_or_disabled_stages_are_never_written() {
         json!({"enabled":true,"appDir":"/other/install"}),
     ] {
         let f = Fixture::new();
-        f.put_json("/var/lib/luma-home/state.json", c);
-        f.put("/var/lib/luma-home/app/splash.png", b"old");
+        f.put_json("/var/lib/ncls-luma-home/state.json", c);
+        f.put("/var/lib/ncls-luma-home/app/splash.png", b"old");
         files::sync_splash(&f, Path::new(DIR), "prism").unwrap();
-        assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"old");
+        assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"old");
     }
 }
 #[test]
@@ -685,7 +773,7 @@ fn missing_or_invalid_splash_sources_preserve_previous_images() {
         assert!(files::sync_splash(&f, Path::new(DIR), background).is_err());
         assert_eq!(f.read(&format!("{DIR}/splash.png")), b"default");
     }
-    assert!(files::sync_splash(&f, Path::new("/tmp/com.ecklf.luma"), "forest").is_err());
+    assert!(files::sync_splash(&f, Path::new("/tmp/cc.ncls.luma"), "forest").is_err());
 }
 #[test]
 fn failed_atomic_write_cleans_its_private_temporary_file() {
@@ -708,7 +796,7 @@ fn stage_uses_persistent_selection_and_retains_manual_background_over_rotation()
         json!({"background":"prism","splash_background":"forest"}),
     );
     files::stage_splash(&f, Path::new(DIR)).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"forest");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"forest");
 }
 #[test]
 fn null_manual_selection_falls_back_to_saved_background() {
@@ -718,7 +806,7 @@ fn null_manual_selection_falls_back_to_saved_background() {
         json!({"background":"prism","splash_background":null}),
     );
     files::stage_splash(&f, Path::new(DIR)).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"prism");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"prism");
 }
 #[test]
 fn malformed_missing_and_unavailable_preferences_use_package_splash() {
@@ -735,7 +823,7 @@ fn malformed_missing_and_unavailable_preferences_use_package_splash() {
         );
         files::stage_splash(&f, Path::new(DIR)).unwrap();
         assert!(matches!(
-            f.read("/var/lib/luma-home/app/splash.png").as_slice(),
+            f.read("/var/lib/ncls-luma-home/app/splash.png").as_slice(),
             b"dunes" | b"default"
         ));
     }
@@ -750,7 +838,7 @@ fn symlink_storage_directories_are_not_used_as_root_preferences() {
         json!({"background":"forest"}),
     );
     files::stage_splash(&f, Path::new(DIR)).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"forest");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"forest");
 }
 
 #[test]
@@ -790,6 +878,13 @@ fn uninstall_rejects_failures_wrong_identity_and_resource_exhaustion() {
     }
     assert!(s.feed(br#"{}"#, false, "sample").is_err());
 }
+#[test]
+fn fork_identity_and_upstream_uninstall_protection() {
+    assert_eq!(APP, "cc.ncls.luma");
+    assert!(!uninstall::allowed("com.ecklf.luma"));
+    assert!(!uninstall::allowed("cc.ncls.luma"));
+}
+
 #[test]
 fn uninstall_protects_system_apps_and_does_not_spawn_when_denied() {
     for id in [
@@ -887,7 +982,7 @@ fn a_stuck_home_process_is_reported_after_unmount_recovery() {
         .unwrap_err();
     assert!(error.contains("Restore also failed"));
     assert_eq!(f.read(EXE), b"stock-com.webos.app.home");
-    assert!(!system::exists(&f, "/var/run/luma-home"));
+    assert!(!system::exists(&f, "/var/run/ncls-luma-home"));
 }
 #[test]
 fn accepted_close_waits_boundedly_and_a_close_race_can_succeed() {
@@ -922,11 +1017,11 @@ fn developer_and_production_splash_precedence_matches_native_storage() {
         json!({"background":"prism"}),
     );
     files::stage_splash(&f, Path::new(DIR)).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"forest");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"forest");
     let production = format!("/media/cryptofs/apps/usr/palm/applications/{APP}");
     f.put(&format!("{production}/splash/prism.png"), b"prism");
     files::stage_splash(&f, Path::new(&production)).unwrap();
-    assert_eq!(f.read("/var/lib/luma-home/app/splash.png"), b"prism");
+    assert_eq!(f.read("/var/lib/ncls-luma-home/app/splash.png"), b"prism");
 }
 #[test]
 fn persistent_preferences_win_over_package_local_migration_and_active_stages_refresh() {

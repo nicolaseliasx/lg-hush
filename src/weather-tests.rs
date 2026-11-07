@@ -20,7 +20,7 @@ fn reading() -> Reading {
 fn preferences() -> Preferences {
     Preferences {
         weather_location: Some(place()),
-        ..Preferences::default()
+        ..Preferences::legacy_defaults()
     }
 }
 fn cache(updated_at: i64) -> Cache {
@@ -229,8 +229,8 @@ fn malformed_weather_preferences_do_not_lose_existing_favorites() {
     assert_eq!(preferences.favorites, Some(vec!["netflix".into()]));
     assert!(preferences.weather_location.is_none());
     assert_eq!(preferences.temperature_unit, Unit::Celsius);
-    assert!(preferences.show_weather);
+    assert!(!preferences.show_weather);
     let old: Preferences = serde_json::from_value(json!({"background":"forest"})).unwrap();
-    assert!(old.show_weather);
+    assert!(!old.show_weather);
     assert!(old.weather_location.is_none());
 }

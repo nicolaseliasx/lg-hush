@@ -104,7 +104,13 @@ async function run(command, args) {
 async function writePreferences(patch = {}) {
   await fs.writeFile(
     preferences,
-    JSON.stringify({ background: 'dunes', reduced_motion: true, show_weather: true, ...patch }),
+    JSON.stringify({
+      background: 'dunes',
+      wallpaper_gradient: true,
+      reduced_motion: true,
+      show_weather: true,
+      ...patch,
+    }),
   );
 }
 async function writeCache(age = 0) {

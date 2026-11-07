@@ -46,6 +46,7 @@ fn excluded(id: &str) -> bool {
     matches!(
         id,
         APP_ID
+            | "com.ecklf.luma"
             | HOME_ID
             | FULL_HOME_ID
             | "com.luma.native"

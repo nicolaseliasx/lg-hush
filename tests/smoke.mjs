@@ -76,6 +76,21 @@ try {
   };
   const home = await scenario('home', 'down');
   assert.deepEqual(home.focus, { App: 'netflix' });
+  // A fresh install is pure black with no weather, greeting or date.
+  assert.equal(home.preferences.background, 'onyx');
+  assert.equal(home.preferences.show_weather, false);
+  assert.equal(home.preferences.show_greeting, false);
+  assert.equal(home.preferences.show_date, false);
+  assert.equal(home.preferences.wallpaper_gradient, false);
+  // The remaining scenarios exercise the widgets and the upstream gallery order, so start from that look.
+  const upstreamLook = {
+    background: 'dunes',
+    deleted_backgrounds: ['onyx'],
+    show_greeting: true,
+    show_date: true,
+    wallpaper_gradient: true,
+  };
+  await fs.writeFile(preferences, JSON.stringify({ ...upstreamLook, show_weather: true }));
   const recents = await scenario('recents', 'recents,await-recents');
   assert.equal(recents.modal, true);
   assert.deepEqual(recents.focus, { Recent: 'netflix' });
@@ -381,24 +396,25 @@ try {
     'update-preview-cleared',
     'settings,down,down,down,down,right',
   );
-  assert.equal(afterUpdatePreview.focus, 'CheckUpdates');
+  assert.deepEqual(afterUpdatePreview.focus, { Setting: 3 });
   assert.ok(!afterUpdatePreview.ui_text.includes('Update available'));
+  assert.ok(!afterUpdatePreview.ui_text.includes('Check again'));
   const currentVersion = JSON.parse(
     await fs.readFile(path.join(root, 'package.json'), 'utf8'),
   ).version;
   const latestPreview = await scenario(
     'update-current-preview',
-    'settings,down,down,down,down,right,enter',
+    'settings,down,down,down,down,right',
     ['--test-update-version', currentVersion],
   );
-  assert.equal(latestPreview.focus, 'CheckUpdates');
+  assert.deepEqual(latestPreview.focus, { Setting: 3 });
   assert.equal(latestPreview.update_status, 'checked');
   assert.equal(latestPreview.available_update, null);
-  assert.ok(latestPreview.ui_text.includes('No newer version found'));
-  assert.ok(latestPreview.ui_text.includes('Check again'));
+  assert.ok(!latestPreview.ui_text.includes('No newer version found'));
+  assert.ok(!latestPreview.ui_text.includes('Check again'));
   assert.ok(latestPreview.ui_text.includes(`Current version: ${currentVersion}`));
   assert.ok(!latestPreview.ui_text.some((label) => label.startsWith('Luma v')));
-  const textOptions = 'settings,down,down,down,down,right,down,down,enter';
+  const textOptions = 'settings,down,down,down,down,right,down,enter';
   const textRendering = await scenario('text-rendering-options', textOptions);
   assert.equal(textRendering.subpage, 'TextRendering');
   assert.deepEqual(textRendering.focus, { Choice: 0 });
@@ -492,7 +508,7 @@ try {
   ];
   await fs.writeFile(
     preferences,
-    JSON.stringify({ favorites: edgeFavorites, show_weather: false }),
+    JSON.stringify({ ...upstreamLook, favorites: edgeFavorites, show_weather: false }),
   );
   const edgeRight = await scenario('favorites-edge-right', 'home,click:1860:600');
   assert.deepEqual(edgeRight.focus, { App: edgeFavorites[6] });
@@ -506,7 +522,7 @@ try {
     Math.abs(edgeLeft.home_scroll - 281.6) < 0.01,
     'Pointer focus preserves strip position',
   );
-  await fs.writeFile(preferences, JSON.stringify({ show_weather: false }));
+  await fs.writeFile(preferences, JSON.stringify({ ...upstreamLook, show_weather: false }));
   const gradientDisabled = await scenario(
     'wallpaper-gradient-disabled',
     'settings,down,down,enter,up,up,right,enter',

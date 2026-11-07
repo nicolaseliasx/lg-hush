@@ -9,22 +9,26 @@ const source = await fs.readFile(new URL('../tv/home.sh', import.meta.url), 'utf
 
 // tv/home.sh in a temporary root: the copied state directory with a recording luma-helper,
 // the cold-boot hook as a real symlink, and stubs for the root-only id/stat checks.
-async function fixture({ helper = true, relative = false } = {}) {
+async function fixture({ helper = true, relative = false, preflight = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'luma-home-wrapper-'));
   const state = path.join(root, 'state');
   const bin = path.join(root, 'bin');
   const hooks = path.join(root, 'init.d');
   const calls = path.join(root, 'calls');
   await Promise.all([state, bin, hooks].map((dir) => fs.mkdir(dir)));
-  const line = 'STATE=/var/lib/luma-home\n';
+  const line = 'STATE=/var/lib/ncls-luma-home\n';
   assert.ok(source.includes(line));
-  await fs.writeFile(path.join(state, 'home.sh'), source.replace(line, `STATE='${state}'\n`), {
-    mode: 0o755,
-  });
+  await fs.writeFile(
+    path.join(state, 'home.sh'),
+    source.replace(line, `STATE='${state}'\n`).replaceAll('/var/lib/webosbrew/init.d', hooks),
+    {
+      mode: 0o755,
+    },
+  );
   if (helper) {
     await fs.writeFile(
       path.join(state, 'luma-helper'),
-      `#!/bin/sh\nfor a; do printf '[%s]' "$a"; done >>'${calls}'\necho >>'${calls}'\n`,
+      `#!/bin/sh\nif [ "$2" = preflight ]; then exit ${preflight ? 0 : 1}; fi\nfor a; do printf '[%s]' "$a"; done >>'${calls}'\necho >>'${calls}'\n`,
       { mode: 0o755 },
     );
   }
@@ -35,7 +39,7 @@ async function fixture({ helper = true, relative = false } = {}) {
   ]) {
     await fs.writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   }
-  const hook = path.join(hooks, '64-luma-home');
+  const hook = path.join(hooks, '64-ncls-luma-home');
   await fs.symlink(relative ? '../state/home.sh' : path.join(state, 'home.sh'), hook);
   const run = (...args) =>
     spawnSync('/bin/sh', [hook, ...args], {
@@ -85,6 +89,56 @@ test('a missing helper is reported before any change', async () => {
     const status = tv.run('status');
     assert.equal(status.status, 1);
     assert.match(status.stderr, /native Luma TV helper is missing/);
+  } finally {
+    await fs.rm(tv.root, { recursive: true, force: true });
+  }
+});
+
+test('standalone boot hook refuses an existing upstream hook', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'luma-autostart-'));
+  try {
+    const app = path.join(root, 'app');
+    const hooks = path.join(root, 'init.d');
+    const bin = path.join(root, 'bin');
+    await Promise.all([app, hooks, bin].map((dir) => fs.mkdir(dir)));
+    await fs.writeFile(path.join(app, 'appinfo.json'), '{}');
+    await fs.writeFile(path.join(bin, 'id'), '#!/bin/sh\necho 0\n', { mode: 0o755 });
+    await fs.writeFile(path.join(hooks, '65-luma'), 'upstream');
+    const script = (await fs.readFile(new URL('../tv/autostart.sh', import.meta.url), 'utf8'))
+      .replaceAll('/media/developer/apps/usr/palm/applications/cc.ncls.luma', app)
+      .replaceAll('/var/lib/webosbrew/init.d', hooks);
+    await fs.writeFile(path.join(app, 'autostart.sh'), script, { mode: 0o755 });
+    const result = spawnSync('/bin/sh', [path.join(app, 'autostart.sh'), 'enable'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(await fs.readFile(path.join(hooks, '65-luma'), 'utf8'), 'upstream');
+    await assert.rejects(fs.lstat(path.join(hooks, '65-ncls-luma')), { code: 'ENOENT' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Home wrapper refuses upstream hook before invoking its helper', async () => {
+  const tv = await fixture();
+  try {
+    await fs.writeFile(path.join(tv.root, 'init.d', '64-luma-home'), 'upstream');
+    const result = tv.run('apply');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /upstream/i);
+    assert.deepEqual(await tv.recorded(), []);
+  } finally {
+    await fs.rm(tv.root, { recursive: true, force: true });
+  }
+});
+
+test('Home wrapper stops before changes when the helper rejects preflight', async () => {
+  const tv = await fixture({ preflight: false });
+  try {
+    const result = tv.run('apply');
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(await tv.recorded(), []);
   } finally {
     await fs.rm(tv.root, { recursive: true, force: true });
   }

@@ -123,7 +123,7 @@ pub fn sync_splash(system: &impl System, directory: &Path, background: &str) -> 
         32 * 1024 * 1024,
     )?;
     replace(system, &directory.join("splash.png"), &image)?;
-    let config_path = Path::new("/var/lib/luma-home/state.json");
+    let config_path = Path::new("/var/lib/ncls-luma-home/state.json");
     if system::exists(system, config_path) {
         let config = system::json(system, config_path)?;
         if config["enabled"] == true
@@ -132,7 +132,7 @@ pub fn sync_splash(system: &impl System, directory: &Path, background: &str) -> 
         {
             replace(
                 system,
-                Path::new("/var/lib/luma-home/app/splash.png"),
+                Path::new("/var/lib/ncls-luma-home/app/splash.png"),
                 &image,
             )?;
         }
@@ -200,5 +200,10 @@ pub(crate) fn stage_splash(system: &impl System, directory: &Path) -> Result<()>
         directory.join("splash.png")
     };
     let bytes = system::read(system, path, 32 * 1024 * 1024)?;
-    system::write(system, "/var/lib/luma-home/app/splash.png", &bytes, 0o644)
+    system::write(
+        system,
+        "/var/lib/ncls-luma-home/app/splash.png",
+        &bytes,
+        0o644,
+    )
 }

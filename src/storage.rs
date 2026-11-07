@@ -15,7 +15,7 @@ pub fn default_path(webos: bool) -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".config")))
         .ok_or("Set HOME, XDG_CONFIG_HOME or --preferences for native preferences")?;
-    Ok(base.join("luma-native/preferences.json"))
+    Ok(base.join("ncls-luma/preferences.json"))
 }
 
 #[cfg(all(feature = "webos", unix))]
@@ -278,6 +278,13 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn desktop_preferences_are_separate_from_the_upstream_launcher() {
+        let path = default_path(false).unwrap();
+        assert!(path.ends_with("ncls-luma/preferences.json"));
+        assert!(!path.ends_with("luma-native/preferences.json"));
     }
 
     #[test]

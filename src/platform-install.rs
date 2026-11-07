@@ -164,8 +164,9 @@ mod tests {
         for manifest in [
             "not json",
             r#"{"id":"other","type":"native","main":"luma"}"#,
-            r#"{"id":"com.ecklf.luma","type":"web","main":"luma"}"#,
-            r#"{"id":"com.ecklf.luma","type":"native","main":"other"}"#,
+            r#"{"id":"com.ecklf.luma","type":"native","main":"luma"}"#,
+            r#"{"id":"cc.ncls.luma","type":"web","main":"luma"}"#,
+            r#"{"id":"cc.ncls.luma","type":"native","main":"other"}"#,
         ] {
             let fixture = Fixture::new();
             let directory = fixture.install("cryptofs");

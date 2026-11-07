@@ -103,6 +103,7 @@ export function normalizeAndVerifyPackage(bytes, manifest) {
     'assets/font-kr-400.ttf',
     'assets/font-kr-500.ttf',
     ...[
+      'onyx',
       'dunes',
       'midnight',
       'san-francisco',

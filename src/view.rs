@@ -62,7 +62,7 @@ impl Assets {
         let id = if BACKGROUNDS.iter().any(|(known, _)| *known == id) {
             id
         } else {
-            "dunes"
+            "onyx"
         };
         let suffix = if state.preferences.wallpaper_gradient {
             ""
@@ -2547,17 +2547,12 @@ fn settings_content(out: &mut Scene, state: &State, assets: &Assets) {
         }
         SYSTEM_SECTION => {
             let rect = Rect::new(640., 164.8 - s, 1120., 220.);
-            let title = if matches!(state.update, crate::update::InstallStatus::Failed(_)) {
+            let title = if state.available_update.is_none() {
+                "system"
+            } else if matches!(state.update, crate::update::InstallStatus::Failed(_)) {
                 "updateError"
-            } else if state.available_update.is_some() {
-                "updateAvailable"
             } else {
-                match state.update_status {
-                    crate::update::Status::Unchecked => "checkForUpdates",
-                    crate::update::Status::Checking => "checkingUpdates",
-                    crate::update::Status::Checked => "latestVersionInstalled",
-                    crate::update::Status::Failed => "updateCheckFailed",
-                }
+                "updateAvailable"
             };
             settings_surface(out, rect, 20.);
             out.text(
@@ -2581,29 +2576,31 @@ fn settings_content(out: &mut Scene, state: &State, assets: &Assets) {
                 c(0xeeeeee, 0.73),
                 false,
             );
-            row(
-                out,
-                state,
-                assets,
-                Row {
-                    target: if state.available_update.is_some() {
-                        Target::InstallUpdate
-                    } else {
-                        Target::CheckUpdates
+            if state.available_update.is_some() {
+                row(
+                    out,
+                    state,
+                    assets,
+                    Row {
+                        target: if state.available_update.is_some() {
+                            Target::InstallUpdate
+                        } else {
+                            Target::CheckUpdates
+                        },
+                        rect: Rect::new(rect.x + 24., rect.y + 132., rect.w - 48., 64.),
+                        title: &update_value(state),
+                        icon: Some(if state.available_update.is_some() {
+                            "arrow"
+                        } else {
+                            "refresh"
+                        }),
+                        value: None,
+                        description: None,
+                        selected: false,
+                        chevron: false,
                     },
-                    rect: Rect::new(rect.x + 24., rect.y + 132., rect.w - 48., 64.),
-                    title: &update_value(state),
-                    icon: Some(if state.available_update.is_some() {
-                        "arrow"
-                    } else {
-                        "refresh"
-                    }),
-                    value: None,
-                    description: None,
-                    selected: false,
-                    chevron: false,
-                },
-            );
+                );
+            }
             for (position, (index, title, icon, value, chevron)) in [
                 (
                     3,
@@ -3581,7 +3578,7 @@ mod tests {
     #[test]
     fn settings_breadcrumbs_use_equal_gaps_and_only_highlight_the_leaf() {
         let assets = assets();
-        let mut state = State::new(Preferences::default());
+        let mut state = State::new(Preferences::legacy_defaults());
         state.open(2);
         state.section = 2;
         state.subpage = Some(Subpage::DateFormat);
@@ -3641,7 +3638,7 @@ mod tests {
     #[test]
     fn upload_button_padding_tracks_the_label_in_every_language() {
         let assets = assets();
-        let mut state = State::new(Preferences::default());
+        let mut state = State::new(Preferences::legacy_defaults());
         state.open(2);
         state.section = 1;
         for language in Language::ALL {
@@ -3672,7 +3669,7 @@ mod tests {
     #[test]
     fn auto_rotation_keeps_a_compact_gap_and_right_aligned_state() {
         let assets = assets();
-        let mut state = State::new(Preferences::default());
+        let mut state = State::new(Preferences::legacy_defaults());
         state.open(2);
         state.section = 1;
         let label = state.preferences.language.t("wallpaperCycle");
@@ -3724,7 +3721,7 @@ mod tests {
             let state = State::new(Preferences {
                 greeting_name: name.into(),
                 show_weather: false,
-                ..Preferences::default()
+                ..Preferences::legacy_defaults()
             });
             let mut scene = Scene::new();
             home(&mut scene, &state, &assets, OffsetDateTime::UNIX_EPOCH);
@@ -3784,7 +3781,7 @@ mod tests {
             let mut state = State::new(Preferences {
                 greeting_name: "Ana".into(),
                 show_weather,
-                ..Preferences::default()
+                ..Preferences::legacy_defaults()
             });
             state.set_inventory(demo_inventory(), None);
             let mut original = Scene::new();
@@ -3834,7 +3831,7 @@ mod tests {
     #[test]
     fn hidden_home_widgets_collapse_without_moving_favorites_or_inputs() {
         let assets = assets();
-        let mut state = State::new(Preferences::default());
+        let mut state = State::new(Preferences::legacy_defaults());
         state.set_inventory(demo_inventory(), None);
         let mut original = Scene::new();
         home(&mut original, &state, &assets, OffsetDateTime::UNIX_EPOCH);

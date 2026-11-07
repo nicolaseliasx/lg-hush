@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
 pub const CATEGORIES: [&str; 4] = ["Streaming", "Music", "Gaming", "Utilities"];
-pub const BACKGROUNDS: [(&str, &str); 9] = [
+pub const BACKGROUNDS: [(&str, &str); 10] = [
+    ("onyx", "Onyx"),
     ("slate", "Slate"),
     ("midnight", "Midnight"),
     ("prism", "Prism"),
@@ -259,7 +260,7 @@ impl Default for Preferences {
             favorites: None,
             custom_tiles: vec![],
             hidden: vec![],
-            background: "dunes".into(),
+            background: "onyx".into(),
             splash_background: None,
             deleted_backgrounds: vec![],
             show_home_names: false,
@@ -268,24 +269,38 @@ impl Default for Preferences {
             reduced_motion: false,
             show_seconds: false,
             greeting_name: String::new(),
-            show_greeting: true,
-            show_date: true,
+            show_greeting: false,
+            show_date: false,
             date_format: DateFormat::default(),
             input_modes: BTreeMap::new(),
             input_names: BTreeMap::new(),
-            show_weather: true,
+            show_weather: false,
             weather_location: None,
             temperature_unit: Unit::Celsius,
             language: Language::En,
             text_rendering: crate::text_rendering::TextRendering::default(),
             wallpaper_cycle: false,
-            wallpaper_gradient: true,
+            wallpaper_gradient: false,
             wallpaper_changed: 0,
         }
     }
 }
 
 impl Preferences {
+    /// The upstream look (photo wallpaper, every Home widget on), so UI tests that
+    /// exercise widgets and wallpaper galleries do not depend on the fork's quiet defaults.
+    #[cfg(test)]
+    pub fn legacy_defaults() -> Self {
+        Self {
+            background: "dunes".into(),
+            show_weather: true,
+            show_greeting: true,
+            show_date: true,
+            wallpaper_gradient: true,
+            ..Self::default()
+        }
+    }
+
     pub fn splash_background(&self) -> &str {
         self.splash_background
             .as_deref()
@@ -384,7 +399,7 @@ impl Preferences {
         if !BACKGROUNDS.iter().any(|(id, _)| *id == self.background)
             && !crate::wallpapers::valid_id(&self.background)
         {
-            self.background = "dunes".into();
+            self.background = "onyx".into();
         }
         let mut seen = HashSet::new();
         self.deleted_backgrounds.retain(|id| {

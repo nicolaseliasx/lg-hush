@@ -70,7 +70,7 @@ fn signal_never_overrides_the_official_cable_state_or_auto_visibility() {
         raw["appId"] = json!("com.webos.app.hdmi1");
         let input = normalize_inputs(&json!([raw])).unwrap().remove(0);
         assert_eq!((input.connected, input.signal), (cable, signal));
-        let mut preferences = Preferences::default();
+        let mut preferences = Preferences::legacy_defaults();
         assert_eq!(preferences.input_visible(&input), cable == Some(true));
         for language in Language::ALL {
             assert_eq!(input_status(&input, false, language), language.t(key));

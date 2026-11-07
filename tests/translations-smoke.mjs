@@ -109,7 +109,17 @@ try {
     await run('cargo', ['build', '--locked', '--package', 'luma']);
   await fs.writeFile(
     preferences,
-    JSON.stringify({ language: 'en', show_home_names: true, reduced_motion: true }),
+    JSON.stringify({
+      language: 'en',
+      show_home_names: true,
+      reduced_motion: true,
+      show_greeting: true,
+      show_weather: true,
+      background: 'dunes',
+      deleted_backgrounds: ['onyx'],
+      wallpaper_gradient: true,
+      show_date: true,
+    }),
   );
   const languages = await scenario('picker-en', picker);
   assert.equal(languages.subpage, 'Language');
@@ -218,7 +228,17 @@ try {
 
   await fs.writeFile(
     preferences,
-    JSON.stringify({ language: 'en', show_home_names: true, reduced_motion: true }),
+    JSON.stringify({
+      language: 'en',
+      show_home_names: true,
+      reduced_motion: true,
+      show_greeting: true,
+      show_weather: true,
+      background: 'dunes',
+      deleted_backgrounds: ['onyx'],
+      wallpaper_gradient: true,
+      show_date: true,
+    }),
   );
   const portuguese = await scenario(
     'pt-home',
@@ -276,7 +296,17 @@ try {
 
   await fs.writeFile(
     preferences,
-    JSON.stringify({ language: 'en', show_home_names: true, reduced_motion: true }),
+    JSON.stringify({
+      language: 'en',
+      show_home_names: true,
+      reduced_motion: true,
+      show_greeting: true,
+      show_weather: true,
+      background: 'dunes',
+      deleted_backgrounds: ['onyx'],
+      wallpaper_gradient: true,
+      show_date: true,
+    }),
   );
   const vietnamesePicker = `${picker},${Array(8).fill('down').join(',')}`;
   const vietnameseFocused = await scenario('vi-picker', vietnamesePicker);
@@ -339,7 +369,17 @@ try {
   await scenario('vi-4k', 'home,down', ['--capture-scale', '2']);
   await fs.writeFile(
     preferences,
-    JSON.stringify({ language: 'en', show_home_names: true, reduced_motion: true }),
+    JSON.stringify({
+      language: 'en',
+      show_home_names: true,
+      reduced_motion: true,
+      show_greeting: true,
+      show_weather: true,
+      background: 'dunes',
+      deleted_backgrounds: ['onyx'],
+      wallpaper_gradient: true,
+      show_date: true,
+    }),
   );
   const traditionalPicker = `${picker},${Array(11).fill('down').join(',')}`;
   const traditionalFocused = await scenario('zh-tw-picker', traditionalPicker);
