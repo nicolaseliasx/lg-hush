@@ -31,6 +31,8 @@ pub trait System {
         thread::sleep(Duration::from_secs(1));
     }
     fn terminate(&self, pid: u32) -> Result<()>;
+    /// SIGKILL, only for processes whose binary is already masked.
+    fn force(&self, pid: u32) -> Result<()>;
     fn uid(&self) -> u32;
 }
 pub struct Tv;
@@ -57,6 +59,23 @@ impl System for Tv {
         {
             // SAFETY: signal only the validated PID selected by Home's process matcher.
             if unsafe { kill(pid as i32, 15) } == 0
+                || std::io::Error::last_os_error().raw_os_error() == Some(3)
+            {
+                return Ok(());
+            }
+            Err(std::io::Error::last_os_error().to_string())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            Err("TV signals require Unix".into())
+        }
+    }
+    fn force(&self, pid: u32) -> Result<()> {
+        #[cfg(unix)]
+        {
+            // SAFETY: signal only a validated PID whose binary the tune already masked.
+            if unsafe { kill(pid as i32, 9) } == 0
                 || std::io::Error::last_os_error().raw_os_error() == Some(3)
             {
                 return Ok(());

@@ -5,6 +5,7 @@ pub mod files;
 pub mod home;
 pub mod input;
 pub mod system;
+pub mod tune;
 pub mod uninstall;
 
 pub type Result<T> = std::result::Result<T, String>;

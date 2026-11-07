@@ -4,14 +4,14 @@ mod webos_compat;
 use luma_tv_helper::{
     files, home, input,
     system::{System, Tv},
-    uninstall,
+    tune, uninstall,
 };
 use serde_json::Value;
 fn run() -> luma_tv_helper::Result<Value> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|s| s == "--help") {
         println!(
-            "luma-helper: diagnose | home COMMAND [APP_DIR] [HOME_ID] | read-app-icon JSON | sync-splash JSON | uninstall-app ID | tv-input COMMAND [APP_DIR]"
+            "luma-helper: diagnose | home COMMAND [APP_DIR] [HOME_ID] | read-app-icon JSON | sync-splash JSON | uninstall-app ID | tv-input COMMAND [APP_DIR] | tune apply|restore|status"
         );
         return Ok(serde_json::json!({"returnValue":true}));
     }
@@ -64,6 +64,15 @@ fn run() -> luma_tv_helper::Result<Value> {
                 .ok_or("Cannot determine installation")?;
             input::configure(&sys, arg(1)?, &directory)
         }
+        "tune" => match arg(1)? {
+            "apply" => tune::apply(&sys),
+            "restore" => tune::restore(&sys),
+            "status" => {
+                luma_tv_helper::system::root(&sys)?;
+                Ok(tune::status(&sys))
+            }
+            _ => Err("Unknown tune command".into()),
+        },
         _ => Err("Unknown TV helper command".into()),
     }
 }

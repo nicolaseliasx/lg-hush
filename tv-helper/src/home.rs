@@ -181,6 +181,20 @@ impl<'a, S: System> Home<'a, S> {
     }
     fn stop_home(&self, app: &str) -> Result<()> {
         let mut stopped = vec![];
+        for pid in self.home_pids(app)? {
+            self.system.terminate(pid)?;
+            stopped.push(format!("/proc/{pid}"));
+        }
+        for _ in 0..5 {
+            if stopped.iter().all(|p| !self.exists(p)) {
+                return Ok(());
+            }
+            self.system.pause();
+        }
+        Err("The previous Home process has not stopped".into())
+    }
+    fn home_pids(&self, app: &str) -> Result<Vec<u32>> {
+        let mut pids = vec![];
         for entry in fs::read_dir(self.system.path(Path::new("/proc")))
             .map_err(|e| e.to_string())?
             .flatten()
@@ -204,34 +218,50 @@ impl<'a, S: System> Home<'a, S> {
             let executable =
                 fs::read_link(self.system.path(Path::new(&format!("{proc}/exe")))).ok();
             if home_process(&args, executable.as_deref(), app, &self.id, self.system) {
-                self.system.terminate(pid)?;
-                stopped.push(proc);
+                pids.push(pid);
             }
         }
-        for _ in 0..5 {
-            if stopped.iter().all(|p| !self.exists(p)) {
-                return Ok(());
-            }
-            self.system.pause();
-        }
-        Err("The previous Home process has not stopped".into())
+        Ok(pids)
     }
     fn launch(&self) -> Result<()> {
         accepted(self.luna("launch", json!({"id":self.id}))?).map(|_| ())
     }
-    fn open_executable(&self) -> Result<()> {
-        for i in 0..15 {
-            if (i == 0 || i == 6)
-                && let Err(error) = self.launch()
-            {
-                eprintln!("Luma Home: {error}");
+    /// Runs after stop_home, so any Home process is the newly mounted Luma. Right after LG
+    /// Home stops, SAM can accept a launch that starts nothing while the foreground still
+    /// names Home (cold boot, webOS 6.5): the foreground alone is not proof. At boot, launch
+    /// again every 4 s while no Home process exists, for up to 25 s.
+    fn open_executable(&self, app: &str, boot: bool) -> Result<()> {
+        for i in 0..if boot { 25 } else { 15 } {
+            let relaunch = if boot {
+                i % 4 == 0 && self.home_pids(app)?.is_empty()
+            } else {
+                i == 0 || i == 6
+            };
+            if relaunch {
+                eprintln!("Luma Home: launch at {}", self.uptime());
+                if let Err(error) = self.launch() {
+                    eprintln!("Luma Home: {error}");
+                }
             }
-            if self.foreground()? == self.id {
+            if self.foreground()? == self.id && !self.home_pids(app)?.is_empty() {
+                eprintln!("Luma Home: in front at {}", self.uptime());
                 return Ok(());
             }
             self.system.pause();
         }
         Err("Home did not come to the front".into())
+    }
+    /// Seconds since kernel boot, for the cold-boot log.
+    fn uptime(&self) -> String {
+        self.read("/proc/uptime")
+            .ok()
+            .and_then(|b| {
+                String::from_utf8_lossy(&b)
+                    .split_whitespace()
+                    .next()
+                    .map(|s| format!("{s} s"))
+            })
+            .unwrap_or_else(|| "unknown uptime".into())
     }
     fn release(&self) -> Result<()> {
         let mut last = String::new();
@@ -423,9 +453,22 @@ impl<'a, S: System> Home<'a, S> {
                 self.reread(&system::json(self.system, format!("{STAGE}/appinfo.json"))?)?;
             }
             self.stop_home(&config.app_dir)?;
-            if open || (front == self.id && self.foreground()? == self.id) {
+            // Still on Home: stopping LG Home empties the foreground ("") rather than handing it
+            // to another app (cold boot, webOS 6.5); any other app keeps its screen.
+            let still_home = || -> Result<bool> {
+                let now = self.foreground()?;
+                Ok(now.is_empty() || now == self.id)
+            };
+            if open || (front == self.id && still_home()?) {
                 if config.method == "executable" {
-                    self.open_executable()?;
+                    match self.open_executable(&config.app_dir, !open) {
+                        // The mount is in place: SAM's own Home launch (preloadmanager) still
+                        // starts Luma. Rolling back would end this boot on LG Home.
+                        Err(error) if !open => {
+                            eprintln!("Luma Home: {error}; keeping the mount for SAM's launch")
+                        }
+                        result => result?,
+                    }
                 } else {
                     self.launch()?;
                 }
@@ -674,7 +717,15 @@ pub fn dispatch(
             let mut config = saved.ok_or("Luma Home has not been enabled")?;
             if command == "apply" && config.enabled {
                 home.apply(&config, false)?;
+                // The debloat follows Home at cold boot; its failure must not undo Home.
+                if let Err(error) = crate::tune::boot(system) {
+                    eprintln!("Luma tune: {error}");
+                }
             } else {
+                // LG Home relies on some stopped services: lift the debloat first.
+                if crate::tune::status(system)["enabled"] == true {
+                    crate::tune::restore(system)?;
+                }
                 config.enabled = false;
                 system::write_json(system, CONFIG, &config)?;
                 home.restore(&config)?;

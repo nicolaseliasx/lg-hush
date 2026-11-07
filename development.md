@@ -719,8 +719,14 @@ Fixture tests cover non-root, unknown and unsupported versions, missing tools, u
 integration, both methods, a Home manifest without lifecycle v2, mounts over the Home and
 `fullhome` directories and the Home executable, both hooks, a foreign or missing Home manifest and an
 invalid saved state. They check that the file tree is unchanged and no command runs.
-This command has not yet been run on a TV; the real readings of `/etc/starfish-release`, the tools
-and mounts there still need confirmation.
+On 2026-11-07, this command ran read-only as root on a `55UP751C0SF` after SlopBro rooting.
+It reported `Rockhopper release 6.5.3-47 (kisscurl-koli)`, `root: true`, all listed
+capabilities present except upstream integration, and `home-replacement: possible` with
+`verified: false`. A subsequent manual Home trial on that TV confirmed return from YouTube,
+Stremio and Spotify with the Home key, LG Home restoration via `disable`, standby wake and
+one cold boot with the takeover reapplied. After that boot the three app cards remained
+visible and at least one app opened and returned via Home. Those observations do not
+change the diagnostic field `verified`, which remains `false` by design.
 
 ### Optional native Home integration
 
@@ -751,7 +757,12 @@ executable itself stays at its installed path for LS2 authentication, `$ORIGIN/l
 and preference selection. Opening Luma's normal tile while the Home mount is active redirects to
 the Home instance. The scripts do not create a browser wrapper or change the package's app ID.
 
-`64-ncls-luma-home` reapplies the mount from a detached boot hook. The existing TV Home Auto Launch
+`64-ncls-luma-home` reapplies the mount from a detached boot hook, without a fixed delay: webosbrew
+runs it about 15 s after SAM opened LG Home (webOS 6.5). `boot.log` records the hook, each launch
+and the moment Luma is in front with `/proc/uptime`. Once LG Home is stopped the foreground reads
+empty, which still counts as Home, and a launch only succeeds when a new Home process exists. At
+boot the helper relaunches every 4 s for up to 25 s; if that times out it keeps the mount, since
+the preload manager's own Home launch then starts Luma. The existing TV Home Auto Launch
 and Quick Start+ settings determine whether power-on opens Home. Until the hook applies, LG Home
 can still appear. This integration does not change those settings or install a remote-key filter.
 `disable` (also `restore`) removes the mount, refreshes LG's manifest, stops the native Home
@@ -763,6 +774,37 @@ Build and script checks cannot establish native Home compatibility. Manually ver
 out of the last app, standby wake with the TV's chosen Quick Start+ setting, a full cold boot,
 saved preferences and restoring LG Home. The broader webOS 6+ app compatibility statement does
 not establish Home-replacement support on older firmware.
+
+### Home key and cursor
+
+Both the Home key and SAM's relaunch as Home return to the Home tab and call
+`SDL_webOSCursorVisibility(false)`, so Home opens in arrow-key focus. The system shows the Magic
+Remote cursor again when the remote moves.
+
+### Performance debloat (`luma-helper tune`)
+
+`tune apply|restore|status` runs as root, only while Luma is Home, and is lifted first by Home
+`disable`. The Home boot hook reapplies an enabled tune after Home. Nothing is uninstalled or
+written to system partitions:
+
+- Preloads listed in `tv-helper/src/tune.rs` (`PRELOADS_OFF`) are switched off in configd
+  (`com.webos.service.preloadmanager.supportAppList`, persistent, read at the preload manager's
+  next start) and with `setPreloadPolicy`. At cold boot the preload manager can stay silent; that
+  only logs a warning. LG's list is saved once in `/var/lib/ncls-luma-tune/state.json` and
+  restored from that first copy.
+- Services in `SERVICES` get `/var/lib/ncls-luma-tune/stub` (`exit 0`) bind-mounted over their
+  binary before they are stopped: systemd units with `stop --no-block` (nudge ignores SIGTERM past
+  the helper deadline), upstart jobs with `initctl stop`, bus-activated binaries by SIGTERM and,
+  after 3 s, SIGKILL (homekit ignores SIGTERM). A clean `exit 0` does not trigger
+  `Restart=on-failure`. `JS_SERVICES` get an empty directory mounted over them.
+- Three LG ad hosts are added for IPv4 and IPv6 to a RAM copy of `/etc/hosts`
+  (`/var/run/ncls-luma-hosts`).
+
+Ownership of mounts is read from `/proc/self/mountinfo` (including `//deleted` sources), so
+reapplying never stacks mounts. On a `55UP751C0SF` (webOS 6.5.3) the targets were found as listed
+in `tune.rs`; `sportsalarm` runs from `/usr/sbin`, started by `ls-hubd`, not from its upstart job.
+Other firmware may start these services differently: check `systemctl show`, `/etc/init` and the
+LS2/D-Bus service files before extending the lists.
 
 ### Running in place of LG's Home executable (webOS 5)
 

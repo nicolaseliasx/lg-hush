@@ -35,7 +35,7 @@ async function fixture({ helper = true, relative = false, preflight = true } = {
   for (const [name, body] of [
     ['id', 'echo 0'],
     ['stat', 'echo 0'],
-    ['sleep', 'exit 0'],
+    ['sleep', `echo "$@" >>'${path.join(root, 'slept')}'`],
   ]) {
     await fs.writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   }
@@ -78,6 +78,19 @@ test('a cold boot through the hook symlink schedules the copied apply', async ()
     const boot = tv.run();
     assert.equal(boot.status, 0, boot.stderr);
     assert.deepEqual(await tv.recorded(), [`[home][apply][${tv.state}][]`]);
+  } finally {
+    await fs.rm(tv.root, { recursive: true, force: true });
+  }
+});
+
+test('a cold boot applies at once: LG Home is already up when webosbrew runs the hook', async () => {
+  const tv = await fixture();
+  try {
+    const boot = tv.run();
+    assert.equal(boot.status, 0, boot.stderr);
+    assert.deepEqual(await tv.recorded(), [`[home][apply][${tv.state}][]`]);
+    const slept = await fs.readFile(path.join(tv.root, 'slept'), 'utf8').catch(() => '');
+    assert.equal(slept, '');
   } finally {
     await fs.rm(tv.root, { recursive: true, force: true });
   }

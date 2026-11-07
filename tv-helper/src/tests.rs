@@ -24,6 +24,7 @@ struct Fixture {
     pauses: Cell<usize>,
     fail_unmount: Cell<bool>,
     stuck: Cell<bool>,
+    preloads: RefCell<Value>,
 }
 impl Fixture {
     fn new() -> Self {
@@ -53,6 +54,12 @@ impl Fixture {
             pauses: Cell::new(0),
             fail_unmount: Cell::new(false),
             stuck: Cell::new(false),
+            preloads: RefCell::new(json!([
+                {"id":"netflix","isEnabled":true,"preloadMode":"partial"},
+                {"id":"com.webos.app.browser","isEnabled":true,"preloadMode":"partial"},
+                {"id":"youtube.leanback.v4","isEnabled":true,"preloadMode":"semi-full"},
+                {"id":"com.webos.app.home","isEnabled":true,"preloadMode":"criu"}
+            ])),
         };
         for dir in [
             "/var/lib/ncls-luma-home/app",
@@ -150,6 +157,13 @@ impl Fixture {
     fn calls(&self) -> Vec<String> {
         self.calls.borrow().clone()
     }
+    fn processes(&self) -> usize {
+        fs::read_dir(self.p("/proc"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().parse::<u32>().is_ok())
+            .count()
+    }
     fn read(&self, path: &str) -> Vec<u8> {
         fs::read(self.p(path)).unwrap()
     }
@@ -176,6 +190,11 @@ impl System for Fixture {
         }
         Ok(())
     }
+    fn force(&self, pid: u32) -> Result<()> {
+        self.calls.borrow_mut().push(format!("kill -9 {pid}"));
+        let _ = fs::remove_dir_all(self.p(&format!("/proc/{pid}")));
+        Ok(())
+    }
     fn run(&self, program: &str, args: &[String], _: Duration, _: usize) -> Result<Output> {
         self.calls
             .borrow_mut()
@@ -193,6 +212,9 @@ impl System for Fixture {
                 });
             }
             self.unmount(args.last().unwrap());
+            return Ok(ok(json!({})));
+        }
+        if program == "/bin/systemctl" || program == "/usr/bin/initctl" {
             return Ok(ok(json!({})));
         }
         if program != "/usr/bin/luna-send" {
@@ -213,7 +235,16 @@ impl System for Fixture {
             "getForegroundAppInfo" => json!({"returnValue":true,"appId":*self.front.borrow()}),
             "launch" => {
                 if self.launch_front.get() {
-                    *self.front.borrow_mut() = payload["id"].as_str().unwrap().into();
+                    let id = payload["id"].as_str().unwrap();
+                    *self.front.borrow_mut() = id.into();
+                    // SAM starts the (possibly mounted) Home executable as a new process.
+                    if id == home::HOME || id == home::FULL_HOME {
+                        let pid = 900 + self.calls.borrow().len();
+                        self.put(
+                            &format!("/proc/{pid}/cmdline"),
+                            format!("/usr/bin/{id}\0{{}}\0").as_bytes(),
+                        );
+                    }
                 }
                 json!({"returnValue":true})
             }
@@ -238,6 +269,14 @@ impl System for Fixture {
                 )?;
                 json!({"returnValue":true,"appInfo":app})
             }
+            "getConfigs" => {
+                json!({"returnValue":true,"configs":{tune_key(): *self.preloads.borrow()}})
+            }
+            "setConfigs" => {
+                *self.preloads.borrow_mut() = payload["configs"][tune_key()].clone();
+                json!({"returnValue":true})
+            }
+            "setPreloadPolicy" => json!({"returnValue":true}),
             "blockSystemApp" | "releaseBlockSystemApp" | "addDevice" | "deleteDevice" => {
                 json!({"returnValue":true})
             }
@@ -252,6 +291,9 @@ fn ok(reply: Value) -> Output {
         stderr: vec![],
         success: true,
     }
+}
+fn tune_key() -> &'static str {
+    "com.webos.service.preloadmanager.supportAppList"
 }
 fn stock(id: &str) -> Value {
     json!({"id":id,"type":"native","main":format!("file:///usr/bin/{id}"),"nativeLifeCycleInterfaceVersion":2})
@@ -491,6 +533,41 @@ fn failed_launch_retries_once_then_restores_stock_files() {
         f.calls().iter().filter(|s| s.contains("/launch ")).count(),
         2
     );
+}
+#[test]
+fn stale_home_foreground_without_a_new_process_is_launched_again() {
+    // Cold boot on webOS 6.5: LG Home is in front, the helper stops it and SAM accepts the
+    // first launch without starting anything, while the foreground still names Home.
+    let f = Fixture::new();
+    *f.front.borrow_mut() = home::HOME.into();
+    f.put("/proc/777/cmdline", format!("{EXE}\0{{}}\0").as_bytes());
+    f.reply("launch", Ok(json!({"returnValue":true})));
+    home::Home::new(&f, home::HOME)
+        .unwrap()
+        .apply(&f.config("executable", home::HOME), false)
+        .unwrap();
+    assert_eq!(
+        f.calls().iter().filter(|s| s.contains("/launch ")).count(),
+        2
+    );
+    assert!(f.processes() > 0);
+}
+#[test]
+fn boot_launch_timeout_keeps_the_mount_for_sams_own_home_launch() {
+    // If SAM ignores every launch at boot, preloadmanager still starts Home later (60 s on
+    // webOS 6.5): rolling back would end the boot on LG Home.
+    let f = Fixture::new();
+    *f.front.borrow_mut() = home::HOME.into();
+    f.put("/proc/777/cmdline", format!("{EXE}\0{{}}\0").as_bytes());
+    f.launch_front.set(false);
+    home::Home::new(&f, home::HOME)
+        .unwrap()
+        .apply(&f.config("executable", home::HOME), false)
+        .unwrap();
+    assert!(system::same_file(&f, EXE, format!("{DIR}/luma")));
+    assert!(system::exists(&f, "/var/run/ncls-luma-home"));
+    assert!(!f.calls().iter().any(|s| s.contains("umount")));
+    assert!(f.calls().iter().filter(|s| s.contains("/launch ")).count() > 2);
 }
 #[test]
 fn restoration_works_even_when_foreground_query_fails() {
@@ -1284,4 +1361,240 @@ fn diagnosis_blocks_on_the_conflicts_enable_refuses() {
         assert_eq!(home_replacement(&report)["state"], "blocked");
         assert_eq!(reasons(&report).len(), 1);
     }
+}
+
+fn tune_tv() -> Fixture {
+    let f = Fixture::new();
+    for (binary, _) in tune::SERVICES {
+        f.put(binary, b"lg-binary");
+    }
+    f.put("/etc/hosts", b"127.0.0.1 localhost\n");
+    f
+}
+fn enabled(f: &Fixture, id: &str) -> bool {
+    f.preloads
+        .borrow()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == id)
+        .unwrap()["isEnabled"]
+        == true
+}
+#[test]
+fn tune_requires_luma_as_home_and_changes_nothing_otherwise() {
+    let f = tune_tv();
+    assert!(tune::apply(&f).unwrap_err().contains("Home"));
+    assert!(f.calls().is_empty());
+    assert_eq!(f.read("/etc/hosts"), b"127.0.0.1 localhost\n");
+}
+#[test]
+fn tune_apply_stubs_stops_blocks_and_restore_puts_lg_back() {
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    let status = tune::apply(&f).unwrap();
+    assert_eq!(status["enabled"], true);
+    assert_eq!(status["adHostsBlocked"], true);
+    for (binary, _) in tune::SERVICES {
+        assert_eq!(f.read(binary), b"#!/bin/sh\nexit 0\n", "{binary}");
+    }
+    assert!(
+        f.calls()
+            .iter()
+            .any(|c| c == "/bin/systemctl stop --no-block contentminer.service")
+    );
+    assert!(
+        f.calls()
+            .iter()
+            .any(|c| c == "/usr/bin/initctl stop sportsalarm")
+    );
+    let hosts = String::from_utf8(f.read("/etc/hosts")).unwrap();
+    assert!(hosts.starts_with("127.0.0.1 localhost\n"));
+    for host in tune::AD_HOSTS {
+        assert!(hosts.contains(&format!("127.0.0.1 {host} ")));
+        assert!(hosts.contains(&format!("::1 {host} ")));
+    }
+    assert!(!enabled(&f, "netflix"));
+    assert!(!enabled(&f, "com.webos.app.browser"));
+    assert!(enabled(&f, "youtube.leanback.v4"));
+    assert!(enabled(&f, "com.webos.app.home"));
+
+    tune::restore(&f).unwrap();
+    for (binary, _) in tune::SERVICES {
+        assert_eq!(f.read(binary), b"lg-binary");
+    }
+    assert_eq!(f.read("/etc/hosts"), b"127.0.0.1 localhost\n");
+    assert!(enabled(&f, "netflix"));
+    assert!(
+        f.calls()
+            .iter()
+            .any(|c| c == "/bin/systemctl start contentminer.service")
+    );
+    assert_eq!(tune::status(&f)["enabled"], false);
+}
+#[test]
+fn tune_reapply_keeps_the_first_copy_of_lgs_preloads_and_does_not_stack_mounts() {
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    tune::apply(&f).unwrap();
+    let mounts = |f: &Fixture| {
+        f.calls()
+            .iter()
+            .filter(|c| c.starts_with("/bin/mount"))
+            .count()
+    };
+    let first = mounts(&f);
+    // TV: the second apply mounted over its own stubs again (mount(2) ENOENT).
+    tune::apply(&f).unwrap();
+    assert_eq!(mounts(&f), first);
+    tune::restore(&f).unwrap();
+    assert!(enabled(&f, "netflix"), "restored from the first saved copy");
+    for (binary, _) in tune::SERVICES {
+        assert_eq!(f.read(binary), b"lg-binary", "{binary}");
+    }
+}
+#[test]
+fn disabling_luma_home_lifts_the_tune_first() {
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    tune::apply(&f).unwrap();
+    home::dispatch(&f, "disable", None, None).unwrap();
+    assert_eq!(f.read("/usr/sbin/contentminer"), b"lg-binary");
+    assert_eq!(f.read("/etc/hosts"), b"127.0.0.1 localhost\n");
+    assert!(enabled(&f, "netflix"));
+}
+#[test]
+fn boot_apply_reapplies_an_enabled_tune_after_home() {
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    tune::apply(&f).unwrap();
+    // A cold boot drops every mount; configd keeps the preload list.
+    for (binary, _) in tune::SERVICES {
+        f.unmount(binary);
+    }
+    f.unmount("/etc/hosts");
+    home::dispatch(&f, "apply", None, None).unwrap();
+    assert_eq!(f.read("/usr/sbin/nudge"), b"#!/bin/sh\nexit 0\n");
+    assert_eq!(tune::status(&f)["adHostsBlocked"], true);
+}
+
+#[test]
+fn tune_ends_running_bus_services_after_stubbing_and_never_waits_on_systemd() {
+    // TV: sportsalarm runs from /usr/sbin, started by the bus; nudge ignores SIGTERM for
+    // longer than the helper's command deadline.
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    f.put("/usr/sbin/sportsalarm", b"lg-binary");
+    f.put("/proc/555/cmdline", b"/usr/sbin/sportsalarm\0");
+    std::os::unix::fs::symlink(f.p("/usr/sbin/sportsalarm"), f.p("/proc/555/exe")).unwrap();
+    tune::apply(&f).unwrap();
+    assert_eq!(f.read("/usr/sbin/sportsalarm"), b"#!/bin/sh\nexit 0\n");
+    assert!(f.calls().contains(&"kill 555".to_string()));
+    assert!(
+        f.calls()
+            .iter()
+            .any(|c| c == "/bin/systemctl stop --no-block nudge.service")
+    );
+}
+
+#[test]
+fn boot_apply_opens_luma_when_the_foreground_empties_after_lg_home_stops() {
+    // TV boot.log: LG Home was in front, and once stopped the foreground answered "", so the
+    // helper never launched Luma and the screen waited for preloadmanager (58 s).
+    let f = Fixture::new();
+    *f.front.borrow_mut() = home::HOME.into();
+    f.put("/proc/777/cmdline", format!("{EXE}\0{{}}\0").as_bytes());
+    f.reply(
+        "getForegroundAppInfo",
+        Ok(json!({"returnValue":true,"appId":home::HOME})),
+    );
+    f.reply(
+        "getForegroundAppInfo",
+        Ok(json!({"returnValue":true,"appId":""})),
+    );
+    home::Home::new(&f, home::HOME)
+        .unwrap()
+        .apply(&f.config("executable", home::HOME), false)
+        .unwrap();
+    assert!(f.calls().iter().any(|s| s.contains("/launch ")));
+    assert!(f.processes() > 0);
+}
+#[test]
+fn tune_waits_for_the_preload_manager_at_boot() {
+    // At 36 s the preload manager answered nothing yet (empty luna-send output).
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    f.reply("setPreloadPolicy", Err("invalid JSON: EOF".into()));
+    f.reply("setPreloadPolicy", Err("invalid JSON: EOF".into()));
+    tune::apply(&f).unwrap();
+}
+#[test]
+fn tune_leaves_youtube_home_and_casting_preloaded_and_drops_unused_inputs() {
+    // The owner uses neither AirPlay, HomeKit nor ThinQ (2026-11-07).
+    assert!(tune::PRELOADS_OFF.contains(&"airplay"));
+    for id in ["youtube.leanback.v4", "com.webos.app.home"] {
+        assert!(!tune::PRELOADS_OFF.contains(&id), "{id}");
+    }
+    for id in [
+        "com.webos.app.livetv",
+        "com.webos.app.hdmi2",
+        "com.webos.app.voice",
+        "amazon",
+    ] {
+        assert!(tune::PRELOADS_OFF.contains(&id), "{id}");
+    }
+}
+
+#[test]
+fn a_silent_preload_manager_only_warns_since_configd_holds_the_list() {
+    // TV boot.log: setPreloadPolicy answered nothing for over 20 s after the hook.
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    for _ in 0..40 {
+        f.reply("setPreloadPolicy", Err("invalid JSON: EOF".into()));
+    }
+    tune::apply(&f).unwrap();
+    assert!(!enabled(&f, "netflix"));
+}
+#[test]
+fn tune_masks_ads_telemetry_homekit_airplay_and_the_thinq_js_service() {
+    let f = tune_tv();
+    let dir = "/usr/palm/services/com.webos.service.homeconnect";
+    f.put(&format!("{dir}/package.json"), b"{}");
+    f.put("/proc/556/cmdline", b"com.webos.service.homeconnect\0");
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    let status = tune::apply(&f).unwrap();
+    for binary in [
+        "/usr/sbin/admanager",
+        "/usr/sbin/rdxd",
+        "/usr/sbin/uploadd",
+        "/usr/sbin/homekit",
+        "/usr/sbin/airplay",
+    ] {
+        assert_eq!(f.read(binary), b"#!/bin/sh\nexit 0\n", "{binary}");
+    }
+    assert!(!system::exists(&f, format!("{dir}/package.json")));
+    assert!(f.calls().contains(&"kill 556".to_string()));
+    assert_eq!(
+        status["servicesStubbed"]["com.webos.service.homeconnect"],
+        true
+    );
+    tune::apply(&f).unwrap();
+    tune::restore(&f).unwrap();
+    assert_eq!(f.read(&format!("{dir}/package.json")), b"{}");
+    assert_eq!(f.read("/usr/sbin/admanager"), b"lg-binary");
+}
+
+#[test]
+fn a_bus_service_that_ignores_sigterm_is_killed_once_its_stub_is_in_place() {
+    // TV: homekit kept running after SIGTERM.
+    let f = tune_tv();
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    f.put("/proc/557/cmdline", b"/usr/sbin/homekit\0");
+    std::os::unix::fs::symlink(f.p("/usr/sbin/homekit"), f.p("/proc/557/exe")).unwrap();
+    f.stuck.set(true);
+    tune::apply(&f).unwrap();
+    assert!(f.calls().contains(&"kill 557".to_string()));
+    assert!(f.calls().contains(&"kill -9 557".to_string()));
+    assert!(!system::exists(&f, "/proc/557"));
 }
