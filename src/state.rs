@@ -196,6 +196,8 @@ pub enum Effect {
     /// Fire-and-forget HTTP request for a custom tile, off the SDL thread.
     FireWebhook(CustomTile),
     Quit,
+    /// Hide the webOS Magic Remote cursor; the system shows it again when the remote moves.
+    HideCursor,
     Weather(weather::Command),
     UpdateDownload(String),
 }
@@ -441,7 +443,7 @@ impl State {
     /// Home's lifecycle relaunch returns directly to Home, even from an overlay.
     pub fn return_home(&mut self) -> Vec<Effect> {
         // Commit keyboard drafts before open() clears their settings subpage.
-        let pending = self.finish_text_input();
+        let mut pending = self.finish_text_input();
         self.recents.pending = None;
         self.recents.visibility = 0.;
         self.recents.closing_focus = None;
@@ -449,6 +451,7 @@ impl State {
         self.pointer = false;
         self.pressed = None;
         self.open(0);
+        pending.push(Effect::HideCursor);
         pending
     }
 

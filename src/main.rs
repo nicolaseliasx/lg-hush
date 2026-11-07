@@ -290,6 +290,19 @@ impl BackButton {
     }
 }
 
+#[cfg(all(feature = "webos", target_os = "linux", target_arch = "arm"))]
+fn hide_webos_cursor() {
+    // Exported by SDL-webOS (SDL_system.h) and not bound by rust-sdl2.
+    unsafe extern "C" {
+        fn SDL_webOSCursorVisibility(visible: sdl2::sys::SDL_bool) -> sdl2::sys::SDL_bool;
+    }
+    // SAFETY: called on the SDL thread after video init; the argument is a plain enum value.
+    let hidden = unsafe { SDL_webOSCursorVisibility(sdl2::sys::SDL_bool::SDL_FALSE) };
+    if hidden != sdl2::sys::SDL_bool::SDL_TRUE {
+        eprintln!("Luma Home: the cursor could not be hidden");
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn effects(
     effects: Vec<Effect>,
@@ -348,6 +361,13 @@ fn effects(
             Effect::FireWebhook(tile) => webhook.send(tile),
             Effect::UpdateDownload(release) => updates.request(update::Request::Download(release)),
             Effect::Quit => return false,
+            Effect::HideCursor =>
+            {
+                #[cfg(all(feature = "webos", target_os = "linux", target_arch = "arm"))]
+                if platform.webos {
+                    hide_webos_cursor();
+                }
+            }
             Effect::Uninstall(id) => platform.send(Request::Uninstall(id)),
             Effect::DeleteWallpaper(id) => {
                 wallpapers.delete(id, state.preferences.background.clone())

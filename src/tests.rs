@@ -23,6 +23,17 @@ fn ready() -> State {
 }
 
 #[test]
+fn home_return_hides_the_system_cursor_even_after_pointer_use() {
+    // Home (key or SAM relaunch) lands in arrow-key focus; the Magic Remote cursor comes
+    // back only when the remote moves, as webOS already does.
+    let mut state = ready();
+    state.open(1);
+    state.pointer = true;
+    assert_eq!(state.return_home().last(), Some(&Effect::HideCursor));
+    assert!(!state.pointer);
+}
+
+#[test]
 fn home_relaunch_returns_from_apps_and_settings() {
     for page in [1, 2] {
         let mut state = ready();
@@ -35,7 +46,7 @@ fn home_relaunch_returns_from_apps_and_settings() {
         state.pressed = Some(Target::Nav(page));
         state.dirty = false;
 
-        assert!(state.return_home().is_empty());
+        assert_eq!(state.return_home(), vec![Effect::HideCursor]);
         assert_eq!(state.page, Page::Home);
         assert_eq!(state.focus, Target::Nav(0));
         assert!(state.query.is_empty());
@@ -45,7 +56,7 @@ fn home_relaunch_returns_from_apps_and_settings() {
         assert!(!state.pointer);
         assert!(state.pressed.is_none());
         assert!(state.dirty);
-        assert!(state.return_home().is_empty());
+        assert_eq!(state.return_home(), vec![Effect::HideCursor]);
         assert!(state.overlay.is_none(), "Home again must not open Recents");
     }
 }
@@ -80,7 +91,7 @@ fn home_relaunch_dismisses_overlays_without_cancelling_mutations() {
         state.deleting_wallpaper = Some("dunes".into());
         state.moving = Some("test.app".into());
 
-        assert!(state.return_home().is_empty());
+        assert_eq!(state.return_home(), vec![Effect::HideCursor]);
         assert_eq!(state.page, Page::Home);
         assert!(state.overlay.is_none());
         assert!(state.panel_started.is_none());
@@ -103,7 +114,7 @@ fn home_relaunch_commits_keyboard_edits_before_clearing_the_subpage() {
         }
         state.text("Console");
 
-        assert_eq!(state.return_home(), vec![Effect::Save]);
+        assert_eq!(state.return_home(), vec![Effect::Save, Effect::HideCursor]);
         assert_eq!(
             state
                 .preferences
@@ -130,7 +141,7 @@ fn home_relaunch_dismisses_recents_and_ignores_its_pending_reply() {
     let generation = state.recents.generation;
     let command = state.recents.pending.clone().unwrap();
 
-    assert!(state.return_home().is_empty());
+    assert_eq!(state.return_home(), vec![Effect::HideCursor]);
     assert_eq!(state.page, Page::Home);
     assert!(state.overlay.is_none());
     assert!(state.recents.pending.is_none());
