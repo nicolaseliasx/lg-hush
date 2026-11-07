@@ -1106,7 +1106,6 @@ fn diagnosis_of_a_supported_root_tv_lists_the_action_as_possible_and_changes_not
     assert_eq!(report["root"], true);
     assert_eq!(report["release"]["raw"], "Rockhopper release 11.2.0");
     assert_eq!(report["release"]["major"], 11);
-    assert_eq!(report["release"]["known"], true);
     assert_eq!(report["capabilities"]["lunaSend"], true);
     assert_eq!(report["capabilities"]["mount"], true);
     assert_eq!(report["capabilities"]["initD"], true);
@@ -1140,7 +1139,7 @@ fn diagnosis_of_unknown_or_unsupported_firmware_blocks_without_guessing() {
         (Some(&b"garbage"[..]), "Unknown webOS version"),
         (
             Some(&b"Rockhopper release 7.1.0"[..]),
-            "Unsupported webOS version 7",
+            "This Home integration currently targets webOS 5/6 and 25/26 (10.x/11.x)",
         ),
     ] {
         let f = Fixture::new();
@@ -1150,7 +1149,6 @@ fn diagnosis_of_unknown_or_unsupported_firmware_blocks_without_guessing() {
             None => fs::remove_file(f.p("/etc/starfish-release")).unwrap(),
         }
         let report = diagnose::report(&f);
-        assert_eq!(report["release"]["known"], false);
         assert_eq!(home_replacement(&report)["state"], "blocked");
         assert_eq!(reasons(&report), [expected]);
     }
@@ -1174,4 +1172,116 @@ fn diagnosis_reports_missing_capabilities_and_upstream_conflicts() {
             .iter()
             .any(|reason| reason.contains("upstream Luma Home"))
     );
+}
+
+#[test]
+fn diagnosis_uses_the_enable_method_criterion_for_the_lg_home_manifest() {
+    let f = Fixture::new();
+    capable(&f, b"Rockhopper release 6.2.0");
+    let mut manifest = stock(home::HOME);
+    manifest
+        .as_object_mut()
+        .unwrap()
+        .remove("nativeLifeCycleInterfaceVersion");
+    f.put_json(
+        "/usr/palm/applications/com.webos.app.home/appinfo.json",
+        manifest,
+    );
+    let before = tree(&f.root);
+    let report = diagnose::report(&f);
+    assert_eq!(report["returnValue"], true);
+    assert_eq!(home_replacement(&report)["state"], "blocked");
+    assert_eq!(home_replacement(&report)["method"], Value::Null);
+    assert_eq!(home_replacement(&report)["verified"], false);
+    assert_eq!(reasons(&report).len(), 1);
+    assert_eq!(tree(&f.root), before, "diagnosis must not write anything");
+    assert!(f.calls.borrow().is_empty());
+}
+
+#[test]
+fn diagnosis_reports_the_method_enable_would_use() {
+    for (release, method) in [
+        (&b"Rockhopper release 5.6.2-21"[..], "executable"),
+        (b"Rockhopper release 6.2.0", "executable"),
+        (b"Rockhopper release 10.1.0", "manifest"),
+        (b"Rockhopper release 11.2.0", "manifest"),
+    ] {
+        let f = Fixture::new();
+        capable(&f, release);
+        let report = diagnose::report(&f);
+        assert_eq!(home_replacement(&report)["state"], "possible");
+        assert_eq!(home_replacement(&report)["method"], method);
+    }
+}
+
+#[test]
+fn diagnosis_blocks_on_the_conflicts_enable_refuses() {
+    type Setup = fn(&Fixture);
+    let home = "/usr/palm/applications/com.webos.app.home";
+    let conflicts: [(&str, Setup); 6] = [
+        ("Another integration is mounted over LG Home", |f| {
+            f.put(
+                "/proc/self/mountinfo",
+                b"1 0 0:1 /other /usr/palm/applications/com.webos.app.home rw - ext4 /dev/test rw\n",
+            )
+        }),
+        ("Another integration is mounted over LG Home", |f| {
+            f.put(
+                "/proc/self/mountinfo",
+                b"1 0 0:1 /other /usr/palm/applications/com.webos.app.fullhome rw - ext4 /dev/test rw\n",
+            )
+        }),
+        ("Another integration is mounted over LG Home", |f| {
+            f.put(
+                "/proc/self/mountinfo",
+                b"1 0 0:1 /other/bin/home /usr/bin/com.webos.app.home rw - ext4 /dev/test rw\n",
+            )
+        }),
+        ("64-ncls-luma-home is already in use", |f| {
+            f.put(
+                "/var/lib/webosbrew/init.d/64-ncls-luma-home",
+                b"#!/bin/sh\n",
+            )
+        }),
+        (
+            "Disable the standalone cold-boot hook with autostart.sh disable first",
+            |f| f.put("/var/lib/webosbrew/init.d/65-ncls-luma", b"#!/bin/sh\n"),
+        ),
+        ("Could not identify the original LG Home manifest", |f| {
+            let mut manifest = stock(home::HOME);
+            manifest["id"] = json!("other.home");
+            f.put_json(
+                "/usr/palm/applications/com.webos.app.home/appinfo.json",
+                manifest,
+            )
+        }),
+    ];
+    for release in [
+        &b"Rockhopper release 6.2.0"[..],
+        b"Rockhopper release 11.2.0",
+    ] {
+        for (expected, conflict) in conflicts {
+            let f = Fixture::new();
+            capable(&f, release);
+            conflict(&f);
+            let before = tree(&f.root);
+            let report = diagnose::report(&f);
+            assert_eq!(home_replacement(&report)["state"], "blocked");
+            assert_eq!(reasons(&report), [expected]);
+            assert_eq!(tree(&f.root), before);
+            assert!(f.calls.borrow().is_empty());
+        }
+        let f = Fixture::new();
+        capable(&f, release);
+        fs::remove_file(f.p(&format!("{home}/appinfo.json"))).unwrap();
+        let report = diagnose::report(&f);
+        assert_eq!(home_replacement(&report)["state"], "blocked");
+        assert_eq!(reasons(&report).len(), 1);
+        let f = Fixture::new();
+        capable(&f, release);
+        f.put("/var/lib/ncls-luma-home/state.json", b"{}");
+        let report = diagnose::report(&f);
+        assert_eq!(home_replacement(&report)["state"], "blocked");
+        assert_eq!(reasons(&report).len(), 1);
+    }
 }

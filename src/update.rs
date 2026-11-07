@@ -161,6 +161,16 @@ pub mod discovery {
             assert!(!public_checks_enabled(true, true));
         }
         #[test]
+        fn homebrew_description_promises_no_updates_while_checks_are_disabled() {
+            let description = include_str!("../assets/homebrew-description.html");
+            if !public_checks_enabled(false, false) {
+                assert!(
+                    !description.to_lowercase().contains("update"),
+                    "Homebrew description promises updates this build cannot check or install"
+                );
+            }
+        }
+        #[test]
         fn preview_requires_a_valid_current_or_newer_version() {
             assert!(validate_preview("99.0.0", "2.13.0").is_ok());
             assert!(validate_preview("2.13.0", "2.13.0").is_ok());

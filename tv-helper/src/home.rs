@@ -109,7 +109,7 @@ impl<'a, S: System> Home<'a, S> {
         }
         Ok(())
     }
-    fn preflight(&self) -> Result<()> {
+    pub(crate) fn preflight(&self) -> Result<()> {
         self.reject_upstream_integration()?;
         for id in [HOME, FULL_HOME] {
             let home = Self::new(self.system, id)?;
@@ -450,6 +450,35 @@ impl<'a, S: System> Home<'a, S> {
         system::remove(self.system, format!("{STATE}/home.cjs"))?;
         Ok(())
     }
+    /// LG's Home manifest; while Luma's own manifest stage is mounted, the copy saved at enable.
+    pub(crate) fn stock(&self, previous: Option<&Config>) -> Result<Value> {
+        if self.mounted() {
+            previous
+                .map(|c| c.stock.clone())
+                .ok_or_else(|| "Missing saved stock manifest".into())
+        } else {
+            system::json(self.system, format!("{}/appinfo.json", self.target))
+        }
+    }
+    /// Read-only refusals `enable` makes after choosing the method; `diagnose` reports them too.
+    pub(crate) fn conflicts(&self, stock: &Value) -> Result<()> {
+        if self.foreign_mount()? {
+            return Err("Another integration is mounted over LG Home".into());
+        }
+        self.owned_mount()?;
+        if self.exists(HOOK) && !hook_owned(self.system) {
+            return Err("64-ncls-luma-home is already in use".into());
+        }
+        if self.exists("/var/lib/webosbrew/init.d/65-ncls-luma") {
+            return Err(
+                "Disable the standalone cold-boot hook with autostart.sh disable first".into(),
+            );
+        }
+        if stock["id"] != self.id || stock["main"] == "luma" {
+            return Err("Could not identify the original LG Home manifest".into());
+        }
+        Ok(())
+    }
     pub fn install(&self, app: &Path) -> Result<()> {
         self.preflight()?;
         let physical = fs::canonicalize(self.system.path(app)).map_err(|e| e.to_string())?;
@@ -474,32 +503,11 @@ impl<'a, S: System> Home<'a, S> {
         {
             return Err("Disable the existing Home integration before changing its target".into());
         }
-        let stock = if self.mounted() {
-            previous
-                .as_ref()
-                .map(|c| c.stock.clone())
-                .ok_or("Missing saved stock manifest")?
-        } else {
-            system::json(self.system, format!("{}/appinfo.json", self.target))?
-        };
+        let stock = self.stock(previous.as_ref())?;
         let release =
             String::from_utf8(self.read("/etc/starfish-release")?).map_err(|e| e.to_string())?;
         let method = method(&release, &stock, &self.id)?;
-        if self.foreign_mount()? {
-            return Err("Another integration is mounted over LG Home".into());
-        }
-        self.owned_mount()?;
-        if self.exists(HOOK) && !hook_owned(self.system) {
-            return Err("64-ncls-luma-home is already in use".into());
-        }
-        if self.exists("/var/lib/webosbrew/init.d/65-ncls-luma") {
-            return Err(
-                "Disable the standalone cold-boot hook with autostart.sh disable first".into(),
-            );
-        }
-        if stock["id"] != self.id || stock["main"] == "luma" {
-            return Err("Could not identify the original LG Home manifest".into());
-        }
+        self.conflicts(&stock)?;
         self.close_normal()?;
         if method == "manifest" {
             system::mkdir(self.system, STAGE)?;

@@ -3066,6 +3066,35 @@ fn disabled_updates_offer_no_check_action() {
 }
 
 #[test]
+fn disabled_updates_say_so_in_the_status_card_without_a_check_action() {
+    use crate::renderer::Draw;
+    let mut state = ready();
+    state.open(2);
+    state.section = crate::state::SYSTEM_SECTION;
+    let language = state.preferences.language;
+    let drawn = |state: &State, key: &str| {
+        scene(state)
+            .draw
+            .iter()
+            .any(|draw| matches!(draw, Draw::Text(label, ..) if label == language.t(key)))
+    };
+    assert!(!state.public_update_checks);
+    assert!(drawn(&state, "updatesDisabled"));
+    assert!(!drawn(&state, "checkAgain"));
+    assert!(!drawn(&state, "checkingUpdates"));
+    assert!(
+        !controls(&state)
+            .iter()
+            .any(|control| control.target == Target::CheckUpdates)
+    );
+    state.public_update_checks = true;
+    assert!(!drawn(&state, "updatesDisabled"));
+    state.public_update_checks = false;
+    state.available_update = Some("9.9.9".into());
+    assert!(!drawn(&state, "updatesDisabled"));
+}
+
+#[test]
 fn update_status_card_keeps_version_visible_without_claiming_a_check() {
     use crate::renderer::Draw;
     let mut state = ready();

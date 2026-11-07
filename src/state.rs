@@ -228,6 +228,8 @@ pub struct State {
     pub error: Option<String>,
     pub available_update: Option<String>,
     pub update_status: crate::update::Status,
+    /// Whether this build checks a public release feed; off until the fork has its own.
+    pub public_update_checks: bool,
     pub update_check_requested: bool,
     /// Inventory loads that failed in a row while no apps were shown yet.
     pub inventory_failures: u32,
@@ -273,6 +275,7 @@ impl State {
             error: None,
             available_update: None,
             update_status: crate::update::Status::Unchecked,
+            public_update_checks: false,
             update_check_requested: false,
             inventory_failures: 0,
             dirty: true,

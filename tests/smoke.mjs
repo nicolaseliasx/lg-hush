@@ -399,6 +399,7 @@ try {
   assert.deepEqual(afterUpdatePreview.focus, { Setting: 3 });
   assert.ok(!afterUpdatePreview.ui_text.includes('Update available'));
   assert.ok(!afterUpdatePreview.ui_text.includes('Check again'));
+  assert.ok(afterUpdatePreview.ui_text.includes('Updates are turned off in this version'));
   const currentVersion = JSON.parse(
     await fs.readFile(path.join(root, 'package.json'), 'utf8'),
   ).version;

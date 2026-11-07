@@ -651,6 +651,77 @@ reply limit. Errors include URI and the bus refusal. Fixed inventory commands ru
 Homebrew Channel `exec`, parsing complete multi-line `luna-send -n 1` JSON replies. Input-read
 failures preserve the last valid inputs. No failed inventory read substitutes demo apps on TV.
 
+### Read-only helper diagnosis
+
+`luma-helper diagnose` reports what the TV exposes and whether the Home replacement could be
+enabled, without changing anything. Run it in the TV's root SSH shell from the installed package:
+
+```sh
+/media/developer/apps/usr/palm/applications/cc.ncls.luma/luma-helper diagnose
+```
+
+A Homebrew Channel (production) installation uses
+`/media/cryptofs/apps/usr/palm/applications/cc.ncls.luma/luma-helper` instead.
+
+It only reads files, `/proc/self/mountinfo` and path metadata. It never writes, runs commands
+(including `luna-send`) or calls the bus, and it does not require root: without root it still
+answers, listing root as a blocker. Host builds refuse every helper command, so the report is
+only produced by the ARM package. It prints one JSON object on stdout:
+
+```json
+{
+  "returnValue": true,
+  "readOnly": true,
+  "root": true,
+  "release": { "raw": "Rockhopper release 6.2.0", "major": 6 },
+  "capabilities": {
+    "lunaSend": true,
+    "mount": true,
+    "initD": true,
+    "upstreamIntegration": false
+  },
+  "actions": [
+    {
+      "id": "home-replacement",
+      "state": "possible",
+      "method": "executable",
+      "verified": false,
+      "reasons": []
+    }
+  ]
+}
+```
+
+- `release.raw` is the trimmed `/etc/starfish-release`, or `null` when it is missing, empty or
+  not UTF-8. `release.major` is the major webOS number parsed from it, or `null`.
+- `capabilities` reports whether `/usr/bin/luna-send`, both `/bin/mount` and `/bin/umount`, and
+  `/var/lib/webosbrew/init.d` exist, and whether upstream Luma's Home or boot integration is present.
+- `actions[].state` is `blocked` when `reasons` is non-empty and `possible` otherwise. `possible`
+  only means that nothing the helper can read blocks `home.sh enable` for `com.webos.app.home`;
+  it does not prove the replacement works on this TV.
+- `method` is the method `enable` would choose (`executable` on webOS 5/6, `manifest` on webOS
+  10/11, see below), computed by the same `home::method` criterion, or `null` when blocked
+  before or by that choice.
+- `reasons` lists, in order: a non-root caller, an unknown webOS version, missing `luna-send`, a
+  missing `mount`/`umount`, and then the first refusal from the read-only checks `enable` makes, in
+  its order: an upstream integration, another mount over LG Home's directory or executable (also
+  for `com.webos.app.fullhome`), an unreadable or invalid saved state, an unreadable LG Home
+  manifest, an unsupported firmware or Home manifest (on webOS 5/6, LG's Home manifest must be
+  `native`, start `file:///usr/bin/com.webos.app.home` and declare
+  `nativeLifeCycleInterfaceVersion: 2`), a `64-ncls-luma-home` hook it does not own, the standalone
+  `65-ncls-luma` hook, and a manifest that is not LG's own Home. With an unknown version, the
+  checks after the mounts are skipped. Conditions found only while
+  enabling (for example, closing the normal Luma instance or SAM rereading the manifest) are not
+  checked.
+- `verified` is always `false`: the helper never treats an action as verified on the TV.
+
+Fixture tests cover non-root, unknown and unsupported versions, missing tools, upstream
+integration, both methods, a Home manifest without lifecycle v2, mounts over the Home and
+`fullhome` directories and the Home executable, both hooks, a foreign or missing Home manifest and an
+invalid saved state. They check that the file tree is unchanged and no command runs.
+This command has not yet been run on a TV; the real readings of `/etc/starfish-release`, the tools
+and mounts there still need confirmation.
+
 ### Optional native Home integration
 
 `tv/home.sh` and the native Rust `luma-helper` executable are packaged beside `luma`. They are a root-only, explicit integration
@@ -844,7 +915,7 @@ runtime font/translation services or telemetry are used. Weather attribution: Op
 
 ## Update availability
 
-The fork disables public update checks and installations until its own release feed is available. It does not query or install releases from upstream Luma. The update preview remains available for desktop testing.
+The fork disables public update checks and installations until its own release feed is available. It does not query or install releases from upstream Luma. **Settings → System** states that updates are turned off in this version and offers no check action. The update preview remains available for desktop testing.
 
 Preview the update card without a network request:
 
@@ -854,7 +925,7 @@ cargo run -- --test-update-version 99.0.0 --script settings,down,down,down,down,
 ```
 
 The flag overrides the environment variable and accepts the current or a newer numeric version.
-Use the current version to preview the up-to-date card and **Check again** without HTTP. It is logged as
+Use the current version to preview the up-to-date card without HTTP. It is logged as
 a simulated update, stored only in memory, and disables the public feed check even on TV. Open
 **Settings → System** to see it. The install action is rejected locally without HTTP, Luna calls or
 package installation in these previews.

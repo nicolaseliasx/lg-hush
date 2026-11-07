@@ -2576,6 +2576,15 @@ fn settings_content(out: &mut Scene, state: &State, assets: &Assets) {
                 c(0xeeeeee, 0.73),
                 false,
             );
+            if state.available_update.is_none() && !state.public_update_checks {
+                out.text(
+                    language.t("updatesDisabled"),
+                    Rect::new(rect.x + 24.2, rect.y + 114., rect.w - 48.4, 32.),
+                    text(20.8, 450, -0.02).leading(1.4),
+                    c(0xeeeeee, 0.73),
+                    false,
+                );
+            }
             if state.available_update.is_some() {
                 row(
                     out,

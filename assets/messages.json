@@ -104,6 +104,21 @@
     "nl": "Controleren op updates…",
     "sv": "Söker efter uppdateringar…"
   },
+  "updatesDisabled": {
+    "zh-tw": "此版本已關閉更新",
+    "en": "Updates are turned off in this version",
+    "de": "Updates sind in dieser Version deaktiviert",
+    "es": "Las actualizaciones están desactivadas en esta versión",
+    "zh": "此版本已关闭更新",
+    "pt": "As atualizações estão desativadas nesta versão",
+    "it": "Gli aggiornamenti sono disattivati in questa versione",
+    "ru": "Обновления отключены в этой версии",
+    "pl": "Aktualizacje są wyłączone w tej wersji",
+    "fr": "Les mises à jour sont désactivées dans cette version",
+    "vi": "Cập nhật đã bị tắt trong phiên bản này",
+    "nl": "Updates zijn uitgeschakeld in deze versie",
+    "sv": "Uppdateringar är avstängda i den här versionen"
+  },
   "checkForUpdates": {
     "zh-tw": "檢查更新",
     "en": "Check for updates",
