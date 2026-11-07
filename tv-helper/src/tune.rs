@@ -44,7 +44,7 @@ pub const AD_HOSTS: [&str; 3] = [
 ];
 /// (binary, how it is started) for suggestions, ads, viewing tracking, telemetry and the
 /// Apple integrations the owner does not use.
-pub const SERVICES: [(&str, Start); 12] = [
+pub const SERVICES: [(&str, Start); 18] = [
     ("/usr/sbin/contentminer", Start::Systemd("contentminer")),
     ("/usr/sbin/nudge", Start::Systemd("nudge")),
     ("/usr/sbin/remotelogger", Start::Systemd("remotelogger")),
@@ -58,6 +58,17 @@ pub const SERVICES: [(&str, Start); 12] = [
     ("/usr/sbin/uploadd", Start::Systemd("uploadd")),
     ("/usr/sbin/homekit", Start::Bus),
     ("/usr/sbin/airplay", Start::Bus),
+    // Voice assistants (started by jailer on demand) and the broadcast configuration download;
+    // the owner uses neither voice nor an antenna.
+    ("/usr/sbin/amazon-alexa-adapter", Start::Bus),
+    ("/usr/sbin/amazon-alexa-vsk", Start::Bus),
+    ("/usr/sbin/google-assistant-adapter", Start::Bus),
+    ("/usr/sbin/lg.thinqai.adapter", Start::Bus),
+    ("/usr/sbin/dangbei-adapter", Start::Bus),
+    (
+        "/usr/sbin/broadcast-conf-downloader",
+        Start::Systemd("broadcast-conf-downloader"),
+    ),
 ];
 /// JavaScript services run by node (run-js-service): an empty directory is mounted over the
 /// service, and the running copy (process title = service name) is ended.

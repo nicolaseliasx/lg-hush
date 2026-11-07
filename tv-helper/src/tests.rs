@@ -1598,3 +1598,31 @@ fn a_bus_service_that_ignores_sigterm_is_killed_once_its_stub_is_in_place() {
     assert!(f.calls().contains(&"kill -9 557".to_string()));
     assert!(!system::exists(&f, "/proc/557"));
 }
+
+#[test]
+fn tune_masks_voice_assistant_adapters_and_the_broadcast_config_download() {
+    // The owner uses no voice or antenna (2026-11-07); these are started on demand or by
+    // systemd and only fetch or send data for those features.
+    let f = tune_tv();
+    let extra = [
+        "/usr/sbin/amazon-alexa-adapter",
+        "/usr/sbin/amazon-alexa-vsk",
+        "/usr/sbin/google-assistant-adapter",
+        "/usr/sbin/lg.thinqai.adapter",
+        "/usr/sbin/dangbei-adapter",
+        "/usr/sbin/broadcast-conf-downloader",
+    ];
+    for binary in extra {
+        f.put(binary, b"lg-binary");
+    }
+    home::dispatch(&f, "enable", Some(DIR), None).unwrap();
+    tune::apply(&f).unwrap();
+    for binary in extra {
+        assert_eq!(f.read(binary), b"#!/bin/sh\nexit 0\n", "{binary}");
+    }
+    assert!(
+        f.calls()
+            .iter()
+            .any(|c| c == "/bin/systemctl stop --no-block broadcast-conf-downloader.service")
+    );
+}
