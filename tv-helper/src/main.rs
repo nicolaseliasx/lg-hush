@@ -11,7 +11,7 @@ fn run() -> luma_tv_helper::Result<Value> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|s| s == "--help") {
         println!(
-            "luma-helper: home COMMAND [APP_DIR] [HOME_ID] | read-app-icon JSON | sync-splash JSON | uninstall-app ID | tv-input COMMAND [APP_DIR]"
+            "luma-helper: diagnose | home COMMAND [APP_DIR] [HOME_ID] | read-app-icon JSON | sync-splash JSON | uninstall-app ID | tv-input COMMAND [APP_DIR]"
         );
         return Ok(serde_json::json!({"returnValue":true}));
     }
@@ -30,6 +30,7 @@ fn run() -> luma_tv_helper::Result<Value> {
     };
     let sys = Tv;
     match arg(0)? {
+        "diagnose" => Ok(luma_tv_helper::diagnose::report(&sys)),
         "read-app-icon" => {
             luma_tv_helper::system::root(&sys)?;
             let source = serde_json::from_str(arg(1)?).map_err(|e| e.to_string())?;

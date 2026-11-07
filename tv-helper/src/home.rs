@@ -80,7 +80,7 @@ impl<'a, S: System> Home<'a, S> {
     fn exists(&self, path: impl AsRef<Path>) -> bool {
         system::exists(self.system, path)
     }
-    fn reject_upstream_integration(&self) -> Result<()> {
+    pub(crate) fn reject_upstream_integration(&self) -> Result<()> {
         for path in [
             "/var/run/luma-home",
             "/var/run/luma-home-target",
@@ -601,13 +601,17 @@ pub fn home_process(
         .and_then(|arg| serde_json::from_str::<Value>(arg).ok());
     native || flutter || (luma && metadata.is_some_and(|m| m["nid"] == id || m["appId"] == id))
 }
-pub fn method<'a>(release: &str, stock: &Value, id: &str) -> Result<&'a str> {
-    target(id)?;
-    let version = release
+/// Major webOS number from /etc/starfish-release ("Rockhopper release 5.6.2-21").
+pub fn release_major(release: &str) -> Option<u32> {
+    release
         .split("release")
         .nth(1)
         .and_then(|s| s.trim_start().split('.').next())
-        .and_then(|s| s.parse::<u32>().ok());
+        .and_then(|s| s.parse::<u32>().ok())
+}
+pub fn method<'a>(release: &str, stock: &Value, id: &str) -> Result<&'a str> {
+    target(id)?;
+    let version = release_major(release);
     if matches!(version, Some(10 | 11)) && id == HOME {
         return Ok("manifest");
     }

@@ -1050,3 +1050,128 @@ fn persistent_preferences_win_over_package_local_migration_and_active_stages_ref
         b"prism"
     );
 }
+
+fn tree(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn walk(directory: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let mut entries: Vec<_> = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            let kind = fs::symlink_metadata(&path).unwrap();
+            if kind.is_dir() {
+                out.push((path.clone(), vec![]));
+                walk(&path, out);
+            } else {
+                out.push((path.clone(), fs::read(&path).unwrap_or_default()));
+            }
+        }
+    }
+    let mut out = vec![];
+    walk(root, &mut out);
+    out
+}
+fn capable(f: &Fixture, release: &[u8]) {
+    f.put("/etc/starfish-release", release);
+    for tool in ["/usr/bin/luna-send", "/bin/mount", "/bin/umount"] {
+        f.put(tool, b"");
+    }
+}
+fn home_replacement(report: &Value) -> &Value {
+    report["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["id"] == "home-replacement")
+        .unwrap()
+}
+fn reasons(report: &Value) -> Vec<String> {
+    home_replacement(report)["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|reason| reason.as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn diagnosis_of_a_supported_root_tv_lists_the_action_as_possible_and_changes_nothing() {
+    let f = Fixture::new();
+    capable(&f, b"Rockhopper release 11.2.0");
+    let before = tree(&f.root);
+    let report = diagnose::report(&f);
+    assert_eq!(report["returnValue"], true);
+    assert_eq!(report["readOnly"], true);
+    assert_eq!(report["root"], true);
+    assert_eq!(report["release"]["raw"], "Rockhopper release 11.2.0");
+    assert_eq!(report["release"]["major"], 11);
+    assert_eq!(report["release"]["known"], true);
+    assert_eq!(report["capabilities"]["lunaSend"], true);
+    assert_eq!(report["capabilities"]["mount"], true);
+    assert_eq!(report["capabilities"]["initD"], true);
+    assert_eq!(report["capabilities"]["upstreamIntegration"], false);
+    assert_eq!(home_replacement(&report)["state"], "possible");
+    assert_eq!(home_replacement(&report)["verified"], false);
+    assert!(reasons(&report).is_empty());
+    assert_eq!(tree(&f.root), before, "diagnosis must not write anything");
+    assert!(
+        f.calls.borrow().is_empty(),
+        "diagnosis must not run commands"
+    );
+}
+
+#[test]
+fn diagnosis_without_root_reports_the_blocker_instead_of_failing() {
+    let f = Fixture::new();
+    capable(&f, b"Rockhopper release 6.2.0");
+    f.uid.set(1000);
+    let report = diagnose::report(&f);
+    assert_eq!(report["returnValue"], true);
+    assert_eq!(report["root"], false);
+    assert_eq!(home_replacement(&report)["state"], "blocked");
+    assert_eq!(reasons(&report), ["Run the TV helper as root"]);
+}
+
+#[test]
+fn diagnosis_of_unknown_or_unsupported_firmware_blocks_without_guessing() {
+    for (release, expected) in [
+        (None, "Unknown webOS version"),
+        (Some(&b"garbage"[..]), "Unknown webOS version"),
+        (
+            Some(&b"Rockhopper release 7.1.0"[..]),
+            "Unsupported webOS version 7",
+        ),
+    ] {
+        let f = Fixture::new();
+        capable(&f, b"");
+        match release {
+            Some(bytes) => f.put("/etc/starfish-release", bytes),
+            None => fs::remove_file(f.p("/etc/starfish-release")).unwrap(),
+        }
+        let report = diagnose::report(&f);
+        assert_eq!(report["release"]["known"], false);
+        assert_eq!(home_replacement(&report)["state"], "blocked");
+        assert_eq!(reasons(&report), [expected]);
+    }
+}
+
+#[test]
+fn diagnosis_reports_missing_capabilities_and_upstream_conflicts() {
+    let f = Fixture::new();
+    f.put("/etc/starfish-release", b"Rockhopper release 5.6.2-21");
+    f.put("/var/run/luma-home", b"");
+    let report = diagnose::report(&f);
+    assert_eq!(report["capabilities"]["lunaSend"], false);
+    assert_eq!(report["capabilities"]["mount"], false);
+    assert_eq!(report["capabilities"]["upstreamIntegration"], true);
+    assert_eq!(home_replacement(&report)["state"], "blocked");
+    let reasons = reasons(&report);
+    assert!(reasons.contains(&"luna-send is missing".to_owned()));
+    assert!(reasons.contains(&"mount or umount is missing".to_owned()));
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("upstream Luma Home"))
+    );
+}
