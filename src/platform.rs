@@ -176,6 +176,13 @@ pub enum Request {
     Refresh,
     RefreshInputs,
     Launch(String),
+    /// Open an app hidden, as the preload manager does, unless it is already running.
+    Preload(String),
+    /// Launch with parameters (Stremio Cards: {type, imdbId}).
+    LaunchParams {
+        id: String,
+        params: Value,
+    },
     Uninstall(String),
     SyncSplash(String),
     Recent {
@@ -187,6 +194,8 @@ pub enum Response {
     Inventory(Result<(Inventory, Option<String>), String>),
     Inputs(Result<Vec<Input>, String>),
     Launched(Result<(), String>),
+    /// Whether a preload was started (false: already running or not on a TV).
+    Preloaded(Result<bool, String>),
     Uninstalled {
         id: String,
         result: Result<(), String>,
@@ -334,6 +343,38 @@ impl Platform {
                             call(
                                 "luna://com.webos.applicationManager/launch",
                                 json!({"id": id}),
+                            )
+                            .map(|_| ())
+                        }
+                    } else {
+                        Ok(())
+                    }),
+                    Request::Preload(id) => Response::Preloaded(if webos && valid_app_id(&id) {
+                        call("luna://com.webos.applicationManager/running", json!({})).and_then(
+                            |running| {
+                                let open = running["running"]
+                                    .as_array()
+                                    .is_some_and(|apps| apps.iter().any(|app| app["id"] == id));
+                                if open {
+                                    return Ok(false);
+                                }
+                                call(
+                                    "luna://com.webos.applicationManager/launch",
+                                    json!({"id": id, "preload": "full", "noSplash": true, "params": {}}),
+                                )
+                                .map(|_| true)
+                            },
+                        )
+                    } else {
+                        Ok(false)
+                    }),
+                    Request::LaunchParams { id, params } => Response::Launched(if webos {
+                        if !valid_app_id(&id) {
+                            Err("Invalid application identifier".into())
+                        } else {
+                            call(
+                                "luna://com.webos.applicationManager/launch",
+                                json!({"id": id, "params": params}),
                             )
                             .map(|_| ())
                         }
@@ -558,6 +599,31 @@ fn raw_call(uri: &str, payload: &Value) -> Result<Value, String> {
         Err("Native Luna services are only available in an ARM webOS build".into())
     };
     response
+}
+
+/// While Luma is Home on the TV: reads the power state every 2 s and powers the TV off as soon
+/// as LG's screensaver starts (see `sleep::Watch`).
+pub fn watch_screensaver() {
+    std::thread::spawn(|| {
+        let mut watch = crate::sleep::Watch::default();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let Ok(power) = raw_call(
+                "luna://com.webos.service.tvpower/power/getPowerState",
+                &json!({}),
+            ) else {
+                continue;
+            };
+            let state = power["state"].as_str().unwrap_or("");
+            if watch.observe(std::time::Instant::now(), state) {
+                eprintln!("Luma: screensaver started; powering off");
+                let _ = call(
+                    "luna://com.webos.service.tvpower/power/powerOff",
+                    json!({"reason": "remoteKey"}),
+                );
+            }
+        }
+    });
 }
 
 fn call(uri: &str, payload: Value) -> Result<Value, String> {

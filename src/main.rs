@@ -10,6 +10,9 @@ mod damage;
 mod diagnostics;
 mod egl_damage;
 mod font;
+mod for_you;
+#[path = "for-you-service.rs"]
+mod for_you_service;
 mod i18n;
 #[path = "input-refresh.rs"]
 mod input_refresh;
@@ -23,6 +26,7 @@ mod renderer;
 #[path = "scroll-preview.rs"]
 mod scroll_preview;
 mod sdl_events;
+mod sleep;
 mod state;
 mod storage;
 mod text_rendering;
@@ -76,6 +80,7 @@ struct Options {
     diagnostics: Option<PathBuf>,
     profile_frames: Option<usize>,
     weather_test_server: Option<String>,
+    for_you_test_server: Option<String>,
     test_extra_apps: usize,
     test_update_version: Option<String>,
 }
@@ -148,6 +153,7 @@ impl Options {
                 }
                 "--diagnostics" => result.diagnostics = Some(value.into()),
                 "--weather-test-server" => result.weather_test_server = Some(value),
+                "--for-you-test-server" => result.for_you_test_server = Some(value),
                 "--test-update-version" => result.test_update_version = Some(value),
                 "--test-extra-apps" => {
                     result.test_extra_apps = value
@@ -361,6 +367,32 @@ fn effects(
             Effect::FireWebhook(tile) => webhook.send(tile),
             Effect::UpdateDownload(release) => updates.request(update::Request::Download(release)),
             Effect::Quit => return false,
+            Effect::OpenTitle(item) => {
+                let language = state.preferences.language;
+                if !platform.webos {
+                    state.notify(language.format("desktopPreview", &[("app", &item.title)]));
+                    continue;
+                }
+                if state.launching {
+                    continue;
+                }
+                let installed = |id: &str| state.inventory.apps.iter().any(|app| app.id == id);
+                if installed(STREMIO_CARDS) {
+                    state.launching = true;
+                    state.notify(language.t("opening"));
+                    platform.send(Request::LaunchParams {
+                        id: STREMIO_CARDS.into(),
+                        params: serde_json::json!({"type": item.kind.as_str(), "imdbId": item.id}),
+                    });
+                } else if installed(STREMIO) {
+                    // The official app ignores launch parameters (tested on webOS 6.5).
+                    state.launching = true;
+                    state.notify(language.format("forYouSearch", &[("title", &item.title)]));
+                    platform.send(Request::Launch(STREMIO.into()));
+                } else {
+                    state.notify(language.t("forYouNoStremio"));
+                }
+            }
             Effect::HideCursor =>
             {
                 #[cfg(all(feature = "webos", target_os = "linux", target_arch = "arm"))]
@@ -490,6 +522,53 @@ fn input_refresh_active(state: &State, webos: bool, focused: bool, visible: bool
                     Some(state::Subpage::Inputs | state::Subpage::Input(_))
                 )))
 }
+
+/// Refreshes "For You" once per session when it is stale, only with Home on screen after the
+/// first frame, so the fetch never competes with startup.
+fn for_you_tick(state: &mut State, service: Option<&for_you_service::Service>, active: bool) {
+    let Some(service) = service else { return };
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let wanted = state.preferences.show_for_you
+        && !state.preferences.show_greeting
+        && !state.preferences.show_date
+        && !state.preferences.show_weather;
+    let cache = for_you::Cache {
+        fetched: state.for_you.fetched,
+        items: vec![],
+    };
+    if active
+        && wanted
+        && state.page == state::Page::Home
+        && !state.for_you.requested
+        && !cache.fresh(now)
+    {
+        state.for_you.requested = true;
+        service.refresh(now);
+    }
+    while let Ok(response) = service.receiver.try_recv() {
+        match response {
+            for_you_service::Response::Items(cache) => {
+                let ids: std::collections::HashSet<_> =
+                    cache.items.iter().map(|item| item.id.clone()).collect();
+                state.for_you.ready.retain(|id| ids.contains(id));
+                state.for_you.fetched = cache.fetched;
+                state.for_you.items = cache.items;
+                if let state::Target::ForYou(id) = &state.focus
+                    && !ids.contains(id)
+                    && let Some(first) = state.first_for_you()
+                {
+                    state.focus = first;
+                }
+            }
+            for_you_service::Response::Image(id) => {
+                state.for_you.ready.insert(id);
+            }
+        }
+        state.dirty = true;
+    }
+}
+
+use for_you::{STREMIO, STREMIO_CARDS};
 
 fn weather_tick(state: &mut State, service: &weather_service::Service, visible: bool) {
     let now = OffsetDateTime::now_utc().unix_timestamp();
@@ -719,6 +798,32 @@ fn run() -> Result<(), String> {
         weather_service::Client::new(options.weather_test_server.as_deref())?,
         weather_cache,
     );
+    if webos && options.for_you_test_server.is_some() {
+        return Err("For You test servers are only available in desktop builds".into());
+    }
+    for_you_service::forget_legacy(&preferences_path);
+    let for_you_cache = for_you_service::cache_path(&preferences_path);
+    let for_you_images = for_you_service::image_dir(&preferences_path);
+    let (cached, ready) = for_you_service::load(&for_you_cache, &for_you_images);
+    if let Some(cached) = cached {
+        state.for_you.fetched = cached.fetched;
+        state.for_you.items = cached.items;
+    }
+    state.for_you.ready = ready;
+    state.for_you.images = for_you_images.clone();
+    // Scripted desktop runs (smokes) stay offline unless given a loopback test server.
+    let for_you_service = (webos
+        || options.for_you_test_server.is_some()
+        || options.script.is_empty())
+    .then(|| {
+        for_you_service::Client::new(options.for_you_test_server.as_deref())
+            .map(|client| for_you_service::Service::new(client, for_you_cache, for_you_images))
+    })
+    .transpose()?;
+    // As Home on the TV, power off instead of leaving LG's screensaver clock on screen.
+    if webos && options.webos_home {
+        platform::watch_screensaver();
+    }
     let updates = update::Worker::new(webos && public_update_checks);
     let platform = Platform::new(
         webos,
@@ -1154,6 +1259,11 @@ fn run() -> Result<(), String> {
                         eprintln!("Luma HDMI refresh: {error}");
                     }
                 }
+                Response::Preloaded(result) => match result {
+                    Ok(true) => eprintln!("Luma For You: Stremio Cards preloaded"),
+                    Ok(false) => {}
+                    Err(error) => eprintln!("Luma For You: preload failed: {error}"),
+                },
                 Response::Launched(result) => {
                     state.launching = false;
                     match result {
@@ -1220,6 +1330,25 @@ fn run() -> Result<(), String> {
             state.notify(state.preferences.language.format(key, &[("tile", &title)]));
         }
         weather_tick(&mut state, &weather_service, visible);
+        for_you_tick(
+            &mut state,
+            for_you_service.as_ref(),
+            visible && presented > 0,
+        );
+        // Keep Stremio Cards preloaded so a card opens it in ~2 s instead of a cold start.
+        if presented > 0 {
+            let now = Instant::now();
+            state.for_you.warm.first_frame(now);
+            let installed = state
+                .inventory
+                .apps
+                .iter()
+                .any(|app| app.id == STREMIO_CARDS);
+            let home = visible && state.page == state::Page::Home && state.overlay.is_none();
+            if platform.webos && state.for_you.warm.due(now, home, installed) {
+                platform.send(Request::Preload(STREMIO_CARDS.into()));
+            }
+        }
         if std::mem::take(&mut state.update_check_requested) {
             if let Some(version) = &options.test_update_version {
                 state.update_response(Ok(

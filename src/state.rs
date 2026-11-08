@@ -25,6 +25,12 @@ pub const HOME_TILE_WIDTH: f32 = 256.;
 pub const HOME_TILE_PITCH: f32 = 281.6;
 pub const HOME_FADE_LEFT: f32 = 8.;
 pub const HOME_FADE_RIGHT: f32 = 1910.;
+/// "For You" posters: 2:3, between the tabs and Favorites.
+pub const FOR_YOU_WIDTH: f32 = 300.;
+pub const FOR_YOU_HEIGHT: f32 = 450.;
+pub const FOR_YOU_PITCH: f32 = 324.;
+/// How far Favorites (and what follows) move down while "For You" shows.
+pub const FOR_YOU_SHIFT: f32 = 245.;
 pub const BACKGROUND_FADE: f32 = 0.4;
 pub const CYCLE_FADE: f32 = 1.6;
 
@@ -45,6 +51,8 @@ pub enum Page {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum Target {
     Nav(usize),
+    /// A "For You" card by IMDb id.
+    ForYou(String),
     TvSettings,
     InstallUpdate,
     CheckUpdates,
@@ -181,6 +189,8 @@ pub enum Direction {
 
 #[derive(Debug, PartialEq)]
 pub enum Effect {
+    /// Open a "For You" title in Stremio Cards (or Stremio, without the title).
+    OpenTitle(crate::for_you::Item),
     Save,
     /// Read the app inventory again, keeping decoded icons of unchanged apps.
     Refresh,
@@ -252,11 +262,13 @@ pub struct State {
     pub greeting_name_draft: String,
     pub input_name: String,
     pub recents: crate::recents::Recents,
+    pub for_you: crate::for_you::Row,
 }
 
 impl State {
     pub fn new(preferences: Preferences) -> Self {
         Self {
+            for_you: Default::default(),
             page: Page::Home,
             focus: Target::Nav(0),
             inventory: Inventory::default(),
@@ -727,7 +739,34 @@ impl State {
         }
     }
 
+    /// "For You" shares the space of the greeting, date and weather: it shows only when they
+    /// are off, it is enabled and it has titles.
+    pub fn for_you_visible(&self) -> bool {
+        let p = &self.preferences;
+        p.show_for_you
+            && !p.show_greeting
+            && !p.show_date
+            && !p.show_weather
+            && !self.for_you.items.is_empty()
+    }
+
+    /// The first card not scrolled away.
+    pub fn first_for_you(&self) -> Option<Target> {
+        let index = ((self.for_you.scroll - 0.01).max(0.) / FOR_YOU_PITCH).ceil() as usize;
+        self.for_you
+            .items
+            .get(index)
+            .or(self.for_you.items.last())
+            .map(|item| Target::ForYou(item.id.clone()))
+    }
+
     pub fn first_content(&self) -> Target {
+        if self.page == Page::Home
+            && self.for_you_visible()
+            && let Some(card) = self.first_for_you()
+        {
+            return card;
+        }
         match self.page {
             Page::Home => self
                 .apps()
@@ -766,7 +805,16 @@ impl State {
     pub fn reveal_focus(&mut self, controls: &[Control]) -> bool {
         let previous = self.scroll;
         let previous_home = self.home_scroll;
+        let previous_for_you = self.for_you.scroll;
         if let Some(control) = controls.iter().find(|c| c.target == self.focus) {
+            if self.page == Page::Home && matches!(self.focus, Target::ForYou(_)) {
+                if control.rect.x < HOME_STRIP_LEFT {
+                    self.for_you.scroll += control.rect.x - HOME_STRIP_LEFT;
+                } else if control.rect.x + control.rect.w > HOME_STRIP_RIGHT {
+                    self.for_you.scroll += control.rect.x + control.rect.w - HOME_STRIP_RIGHT;
+                }
+                self.for_you.scroll = self.for_you.scroll.max(0.);
+            }
             if self.page == Page::Home && matches!(self.focus, Target::App(_)) {
                 if control.rect.x < HOME_STRIP_LEFT {
                     self.home_scroll += control.rect.x - HOME_STRIP_LEFT;
@@ -804,10 +852,15 @@ impl State {
         if self.page == Page::Home {
             self.scroll_favorites(0.);
         }
-        if self.scroll != previous || self.home_scroll != previous_home {
+        if self.scroll != previous
+            || self.home_scroll != previous_home
+            || self.for_you.scroll != previous_for_you
+        {
             self.dirty = true;
         }
-        self.scroll != previous || self.home_scroll != previous_home
+        self.scroll != previous
+            || self.home_scroll != previous_home
+            || self.for_you.scroll != previous_for_you
     }
 
     /// Hover and pointer-down must not move the control before pointer-up.
@@ -1092,7 +1145,14 @@ impl State {
                             let id = apps[next].id.clone();
                             self.focus(Target::App(id), controls);
                         }
-                        Direction::Up => self.focus(Target::Nav(0), controls),
+                        Direction::Up => {
+                            let up = if self.for_you_visible() {
+                                self.first_for_you().unwrap_or(Target::Nav(0))
+                            } else {
+                                Target::Nav(0)
+                            };
+                            self.focus(up, controls)
+                        }
                         Direction::Down => {
                             let x = controls
                                 .iter()
@@ -1122,6 +1182,34 @@ impl State {
                     }
                     return vec![];
                 }
+            }
+            if self.page == Page::Home
+                && let Target::ForYou(id) = &self.focus
+            {
+                let items = &self.for_you.items;
+                let index = items.iter().position(|item| &item.id == id).unwrap_or(0);
+                let next = match direction {
+                    Direction::Left => items.get(index.saturating_sub(1)),
+                    Direction::Right => items.get((index + 1).min(items.len().saturating_sub(1))),
+                    Direction::Up => None,
+                    Direction::Down => None,
+                }
+                .map(|item| Target::ForYou(item.id.clone()));
+                let target = match direction {
+                    Direction::Up => Some(Target::Nav(0)),
+                    Direction::Down => self.apps().first().map(|_| {
+                        let home_scroll = self.home_scroll;
+                        let apps = self.apps();
+                        let index =
+                            ((home_scroll - 0.01).max(0.) / HOME_TILE_PITCH).ceil() as usize;
+                        Target::App(apps[index.min(apps.len() - 1)].id.clone())
+                    }),
+                    _ => next,
+                };
+                if let Some(target) = target {
+                    self.focus(target, controls);
+                }
+                return vec![];
             }
             let setting_rows: Option<&[Target]> = match self.subpage {
                 Some(Subpage::Greeting) => Some(&[
@@ -2068,6 +2156,20 @@ impl State {
                 }
             }
             Target::InputRename => self.open_keyboard(TextField::InputName),
+            Target::Widget(5) => {
+                self.preferences.show_for_you = !self.preferences.show_for_you;
+                self.dirty = true;
+                return vec![Effect::Save];
+            }
+            Target::ForYou(id) => {
+                return self
+                    .for_you
+                    .items
+                    .iter()
+                    .find(|item| item.id == id)
+                    .map(|item| vec![Effect::OpenTitle(item.clone())])
+                    .unwrap_or_default();
+            }
             Target::Widget(index) => {
                 let (subpage, focus) = match index {
                     0 => (Subpage::Greeting, Target::GreetingToggle),

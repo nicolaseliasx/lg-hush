@@ -52,6 +52,8 @@ fn excluded(id: &str) -> bool {
             | "com.luma.native"
             | "com.luma.launcher"
             | "com.luma.launcher.native"
+            // Kept open in the background for "For You": not closable from Recents.
+            | crate::for_you::STREMIO_CARDS
     )
 }
 

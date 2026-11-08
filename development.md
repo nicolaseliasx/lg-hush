@@ -775,6 +775,53 @@ out of the last app, standby wake with the TV's chosen Quick Start+ setting, a f
 saved preferences and restoring LG Home. The broader webOS 6+ app compatibility statement does
 not establish Home-replacement support on older firmware.
 
+### "For You" row
+
+2:3 posters between the tabs and Favorites, all the same size and without motion; the focused
+title, genre and runtime appear in one line under the row. Favorites and the inputs move down
+`FOR_YOU_SHIFT` while the row shows and keep their position otherwise. The row shows when
+`show_for_you` is on (default; off in `Preferences::legacy_defaults`), the greeting, date and
+weather are off (they use the same space) and there are titles. Settings → Widgets → For You
+switches it in place.
+
+- Data: Stremio's public Cinemeta catalogs (`cinemeta-catalogs.strem.io/top/catalog/{movie,series}/top.json`,
+  no key or account), movies and series interleaved, at most 12 (`src/for_you.rs`). Only IMDb
+  ids (`tt` + digits) are kept; they name the image files and the launch parameters. Genres
+  are translated for Portuguese; other languages show Cinemeta's English names.
+- Fetching (`src/for-you-service.rs`): off the SDL thread, once per session with Home on screen
+  after the first frame, when the cache is older than 6 h. Catalogs never follow redirects and
+  are capped at 1 MiB. Posters (`images.metahub.space/poster/small/{id}/img`, 300×450) may
+  follow up to 3 redirects (new titles are rendered on `live.metahub.space`) and are capped at
+  512 KiB. They come as JPEG or WebP; the renderer picks its decoder from the `.jpg` name and
+  keeps a failed load for the session, so WebP is converted to JPEG on the worker and an image
+  is announced only after it was validated and renamed into place. The cache is
+  `<preferences>.for-you-posters.json` with images in `<preferences>.for-you-posters/`; images
+  of titles that left the list are deleted, and the first version's 16:9 cache
+  (`.for-you.json`, `.for-you/`) is removed at startup. Offline, the
+  cache is shown; with no cache the row is absent.
+- Stremio Cards is kept preloaded: 10 s after the first Home frame, and then at most every
+  30 s while Home is on screen (Back inside Stremio Cards closes it), Luma checks `applicationManager/running` and, if it is
+  missing, launches it with `preload: "full"` (hidden, like the preload manager). A card then
+  opens it in ~2 s instead of 10-15 s (measured on webOS 6.5). It costs ~175 MB while open
+  (web process ~154 MB, streaming service ~21 MB). It is left out of Recents, so it cannot be
+  closed there; the system can still close it under memory pressure, and the next check
+  preloads it again.
+- OK opens the title in Stremio Cards (`cc.ncls.stremiocards`, launch params
+  `{"type", "imdbId"}`), a separate Stremio build that opens `#/detail/{type}/{id}`. Without
+  it, the official Stremio (`io.strem.tv`) opens with a notice naming the title: on webOS 6.5,
+  version 1.13.3 ignored `contentTarget` in every tested form.
+- Scripted desktop runs (smokes) stay offline unless `--for-you-test-server
+  http://127.0.0.1:PORT` (loopback HTTP only) serves `/catalog/{movie,series}/top.json` and
+  `/poster/small/{id}/img`.
+
+### Power off instead of the screensaver
+
+As Home on the TV, Luma reads `com.webos.service.tvpower/power/getPowerState` every 2 s
+(`platform::watch_screensaver`). On webOS 6.5 the screensaver is that state (`"Screen Saver"`),
+not a foreground app. As soon as it appears, Luma calls `power/powerOff` with
+`reason: "remoteKey"`, like the remote's power key. With Quick Start+ on, the TV then sleeps
+for real and wakes straight into Luma (`src/sleep.rs`).
+
 ### Home key and cursor
 
 Both the Home key and SAM's relaunch as Home return to the Home tab and call

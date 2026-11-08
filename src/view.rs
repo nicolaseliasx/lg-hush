@@ -4,9 +4,10 @@ use crate::{
     model::{App, BACKGROUNDS, CATEGORIES, Input, InputMode},
     renderer::{Color, Draw, TextStyle, WHITE},
     state::{
-        APPS_COLUMNS, Control, HOME_FADE_LEFT, HOME_FADE_RIGHT, HOME_STRIP_LEFT, HOME_STRIP_RIGHT,
-        HOME_TILE_PITCH, HOME_TILE_WIDTH, KEYS, Overlay, Page, Rect, SYSTEM_SECTION, State,
-        Subpage, Target, TextField, WIDGETS_SECTION,
+        APPS_COLUMNS, Control, FOR_YOU_HEIGHT, FOR_YOU_PITCH, FOR_YOU_SHIFT, FOR_YOU_WIDTH,
+        HOME_FADE_LEFT, HOME_FADE_RIGHT, HOME_STRIP_LEFT, HOME_STRIP_RIGHT, HOME_TILE_PITCH,
+        HOME_TILE_WIDTH, KEYS, Overlay, Page, Rect, SYSTEM_SECTION, State, Subpage, Target,
+        TextField, WIDGETS_SECTION,
     },
     weather::{self, Unit},
 };
@@ -1142,6 +1143,13 @@ fn home(out: &mut Scene, state: &State, assets: &Assets, now: OffsetDateTime) {
             top + date_height + greeting_height,
         );
     }
+    // Favorites and the inputs move down under the posters, and stay put without them.
+    let s = if state.for_you_visible() {
+        for_you(out, state, s);
+        s - FOR_YOU_SHIFT
+    } else {
+        s
+    };
     out.text(
         language.t("favorites"),
         Rect::new(84., 478.5 - s, 1000., 31.),
@@ -2524,10 +2532,13 @@ fn settings_content(out: &mut Scene, state: &State, assets: &Assets) {
                 (1, "weather", "weather-sun"),
                 (2, "shortcuts", "sparkles"),
                 (3, "inputs", "input-hdmi"),
+                (5, "forYou", "sparkles"),
             ]
             .into_iter()
             .enumerate()
             {
+                // "For You" switches in place; the others open a page.
+                let toggle = widget == 5;
                 row(
                     out,
                     state,
@@ -2537,10 +2548,16 @@ fn settings_content(out: &mut Scene, state: &State, assets: &Assets) {
                         rect: Rect::new(640., 164.8 + index as f32 * 84. - s, 1120., 72.),
                         title: language.t(key),
                         icon: Some(icon),
-                        value: None,
+                        value: toggle.then(|| {
+                            language.t(if state.preferences.show_for_you {
+                                "stateOn"
+                            } else {
+                                "stateOff"
+                            })
+                        }),
                         description: None,
                         selected: false,
-                        chevron: true,
+                        chevron: !toggle,
                     },
                 );
             }
@@ -3015,6 +3032,93 @@ fn shortcut_settings(out: &mut Scene, state: &State, assets: &Assets) {
             chevron: false,
         },
     );
+}
+
+/// "For You": 2:3 posters from the Stremio catalog between the tabs and Favorites, all the
+/// same size and without motion; the focused title is named in one line under the row.
+/// Its own horizontal scroll, like the Favorites row.
+fn for_you(out: &mut Scene, state: &State, s: f32) {
+    let language = state.preferences.language;
+    out.text(
+        language.t("forYou"),
+        Rect::new(84., 150. - s, 1000., 31.),
+        text(23.2, 550, -0.035).leading(1.3),
+        WHITE,
+        false,
+    );
+    let scrolled = state.for_you.scroll > 0.;
+    let left = if scrolled { HOME_FADE_LEFT } else { 0. };
+    out.draw.push(Draw::Clip(Some(Rect::new(
+        left,
+        180. - s,
+        HOME_FADE_RIGHT - left,
+        FOR_YOU_HEIGHT + 40.,
+    ))));
+    out.draw.push(Draw::EdgeFadeX(Some([
+        left,
+        if scrolled { HOME_STRIP_LEFT } else { 0. },
+        HOME_STRIP_RIGHT,
+        HOME_FADE_RIGHT,
+    ])));
+    let mut focused_item = None;
+    for (index, item) in state.for_you.items.iter().enumerate() {
+        let rect = Rect::new(
+            84. + index as f32 * FOR_YOU_PITCH - state.for_you.scroll,
+            196. - s,
+            FOR_YOU_WIDTH,
+            FOR_YOU_HEIGHT,
+        );
+        let target = Target::ForYou(item.id.clone());
+        out.control(target.clone(), rect, false);
+        let focused = state.focus == target;
+        if focused {
+            focused_item = Some(item);
+        }
+        if rect.x + rect.w < 0. || rect.x > 1920. {
+            continue;
+        }
+        out.shadow(
+            rect,
+            16.,
+            if focused { 34. } else { 22. },
+            if focused { 14. } else { 9. },
+            if focused { 0.4 } else { 0.165 },
+        );
+        match state.for_you.image(&item.id) {
+            Some(path) => out.image(path, rect, 16., false),
+            None => {
+                // Placeholder until the poster is saved: the title on a quiet card.
+                out.shape(rect, 16., c(0xffffff, 0.06));
+                out.text(
+                    &item.title,
+                    Rect::new(rect.x + 18., rect.y + rect.h - 80., rect.w - 36., 60.),
+                    text(18.4, 550, -0.02).leading(1.3),
+                    c(0xffffff, 0.7),
+                    false,
+                );
+            }
+        }
+        out.border(rect, 16., 1., c(0xffffff, 0.086));
+        if focused {
+            out.ring(rect, 16.);
+        }
+    }
+    out.draw.push(Draw::EdgeFadeX(None));
+    out.draw.push(Draw::Clip(Some(state.content_viewport())));
+    if let Some(item) = focused_item {
+        let caption = crate::for_you::caption(item, language);
+        out.text(
+            if caption.is_empty() {
+                item.title.clone()
+            } else {
+                format!("{}  ·  {caption}", item.title)
+            },
+            Rect::new(84., 196. + FOR_YOU_HEIGHT + 16. - s, 1752., 26.),
+            text(18.4, 550, -0.01),
+            c(0xffffff, 0.86),
+            false,
+        );
+    }
 }
 
 /// URLs have no break opportunities, so long ones are cut to a single line.

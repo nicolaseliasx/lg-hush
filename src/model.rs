@@ -252,6 +252,8 @@ pub struct Preferences {
     pub wallpaper_gradient: bool,
     /// Unix seconds of the last automatic or chosen wallpaper change, for the timed modes.
     pub wallpaper_changed: u64,
+    /// "For You" cards above Favorites; on for saved preferences that predate it.
+    pub show_for_you: bool,
 }
 
 impl Default for Preferences {
@@ -282,6 +284,7 @@ impl Default for Preferences {
             wallpaper_cycle: false,
             wallpaper_gradient: false,
             wallpaper_changed: 0,
+            show_for_you: true,
         }
     }
 }
@@ -297,6 +300,7 @@ impl Preferences {
             show_greeting: true,
             show_date: true,
             wallpaper_gradient: true,
+            show_for_you: false,
             ..Self::default()
         }
     }

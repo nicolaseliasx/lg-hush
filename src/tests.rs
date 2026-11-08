@@ -16,6 +16,9 @@ mod wallpaper_tests;
 #[path = "input-refresh-tests.rs"]
 mod input_refresh_tests;
 
+#[path = "for-you-ui-tests.rs"]
+mod for_you_ui_tests;
+
 fn ready() -> State {
     let mut state = State::new(Preferences::legacy_defaults());
     state.set_inventory(demo_inventory(), None);
@@ -2386,7 +2389,8 @@ fn widgets_group_existing_settings_and_restore_each_parent_without_changing_pref
             _ => None,
         })
         .collect();
-    assert_eq!(widget_order, [4, 0, 1, 2, 3]);
+    // 5 is "For You", a switch in place rather than a page.
+    assert_eq!(widget_order, [4, 0, 1, 2, 3, 5]);
     for (index, subpage) in [
         Subpage::Greeting,
         Subpage::Weather,
@@ -2468,7 +2472,7 @@ fn widgets_are_localized_without_legacy_sidebar_entries() {
                 .iter()
                 .filter(|c| matches!(c.target, Target::Widget(_)))
                 .count(),
-            5
+            6
         );
         for key in [
             "widgets",

@@ -2,15 +2,18 @@
 use super::*;
 use crate::recents::{Command, DismissalOutcome};
 
+/// Overall size of the deck: the owner asked for much smaller cards, still centered.
+const SIZE: f32 = 0.6;
+
 fn card_rect(offset: f32) -> Rect {
     let depth = offset.abs();
     let scale = 1. / (1. + 0.22 * depth);
-    let width = 900. * scale;
+    let width = 900. * SIZE * scale;
     let height = width * 9. / 16.;
-    let x = 960. + offset.signum() * (400. * depth.min(1.) + 160. * (depth - 1.).max(0.));
+    let x = 960. + offset.signum() * SIZE * (400. * depth.min(1.) + 160. * (depth - 1.).max(0.));
     Rect::new(
         x - width / 2.,
-        540. + 18. * depth.min(3.) - height / 2.,
+        540. + SIZE * 18. * depth.min(3.) - height / 2.,
         width,
         height,
     )

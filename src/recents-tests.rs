@@ -15,6 +15,8 @@ fn system_history_preserves_order_and_inputs_and_rejects_invalid_entries() {
     let entries = recents::normalize(&json!({"ready": true, "recentsAppList": [
         {"appId":"youtube.leanback.v4", "title":" YouTube\n "},
         {"appId":"com.ecklf.luma"}, {"appId":"cc.ncls.luma"},
+        // Kept open in the background for "For You"; it cannot be closed from here.
+        {"appId":"cc.ncls.stremiocards", "title":"Stremio Cards"},
         {"appId":"com.webos.app.home"},
         {"appId":"com.luma.launcher"}, {"appId":"invalid; command"},
         {"appId":"com.webos.app.hdmi1", "title":"Console"},
@@ -752,11 +754,12 @@ fn stacked_cards_hit_the_front_card_in_overlaps_and_rear_cards_only_where_expose
     assert!(rear.x < front.x + front.w);
     let controls = controls(&state);
     assert_eq!(
-        state.hit_test(&controls, 1200., 540.),
+        // The deck is drawn at 0.6 of its original size around the screen center.
+        state.hit_test(&controls, 960. + 240. * 0.6, 540.),
         Some(Target::Recent("netflix".into()))
     );
     assert_eq!(
-        state.hit_test(&controls, 1600., 540.),
+        state.hit_test(&controls, 960. + 640. * 0.6, 540.),
         Some(Target::Recent("youtube.leanback.v4".into()))
     );
 }
@@ -794,13 +797,13 @@ fn closing_lifts_the_card_and_fills_its_slot_without_a_refresh_jump() {
     advance_recents(&mut state, 80);
     let entering = recent_bounds(&state, "youtube.leanback.v4");
     assert!(entering.x < before_next.x);
-    assert!(entering.w > before_next.w && entering.w < 900.);
+    assert!(entering.w > before_next.w && entering.w < 540.);
     for _ in 0..50 {
         advance_recents(&mut state, 16);
     }
     let settled = recent_bounds(&state, "youtube.leanback.v4");
     assert_eq!(settled.center(), (960., 540.));
-    assert_eq!(settled.w, 900.);
+    assert_eq!(settled.w, 540.);
     assert!(state.recents.dismissals.is_empty());
     assert!(!state.animating());
 }
@@ -933,4 +936,21 @@ fn empty_recents_has_no_explanatory_subtitle() {
         })
         .collect();
     assert_eq!(texts, ["No recent apps"]);
+}
+
+#[test]
+fn recents_cards_are_small_and_centered() {
+    // Owner's request (2026-11-07): much smaller cards, still centered on screen.
+    let mut state = ready();
+    state.open_recents();
+    accept(&mut state, recents::demo());
+    state.recents.visibility = 1.;
+    let front = controls(&state)
+        .into_iter()
+        .find(|c| state.focus == c.target && matches!(c.target, Target::Recent(_)))
+        .expect("focused recent card");
+    assert!(front.rect.w <= 560., "{:?}", front.rect);
+    assert!((front.rect.w / front.rect.h - 16. / 9.).abs() < 0.01);
+    let (x, y) = front.rect.center();
+    assert!((x - 960.).abs() < 1. && (y - 540.).abs() < 1., "{x} {y}");
 }
