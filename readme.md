@@ -1,268 +1,74 @@
-# Luma
+# lg-hush
 
-A native launcher for rooted LG webOS TVs, inspired by Apple TV.
+A quiet, pure-black Home for rooted LG webOS TVs, with a built-in, reversible debloat.
 
-This fork uses the `cc.ncls.luma` identity. Device reports below describe upstream
-Luma; this fork has not yet been verified on a TV. Update checks and installation
-are disabled until the fork has its own release feed.
+lg-hush is a derivative of [Luma](https://github.com/ecklf/lg-luma) by ecklf and the Luma
+contributors (MIT). The launcher, renderer and most of the code are theirs; this project adds a
+default look and a TV helper on top. See [Credits](#credits).
 
-https://github.com/user-attachments/assets/2156d640-b8fa-4ea4-a02c-0db4c93bcc5a
+> [!WARNING]
+> This needs a **rooted** TV and changes how the TV's Home works. Rooting voids warranties and
+> can break your TV. You use everything here **at your own risk**. Nothing in this repository
+> roots a TV, and nothing writes to the TV's system partitions (see [what it changes](#what-it-changes)).
 
-<details>
-<summary>Screenshots</summary>
+## What it is
 
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/home.png" alt="Luma native Home screen, desktop preview">
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/apps.png" alt="Luma native app library, desktop preview">
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/settings.png" alt="Luma native General settings, desktop preview">
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/inputs.png" alt="Luma native input settings, desktop preview">
-    </td>
-  </tr>
-</table>
+- **Home as a black launcher.** Fresh installs default to a pure black background with no weather,
+  greeting or date. Apps, inputs and recent apps behave like upstream Luma.
+- **`luma-helper`**, a small root-only helper packaged with the app:
+  - `diagnose` reads what your TV exposes and whether the Home replacement can be enabled. It changes nothing.
+  - `tune` is the debloat: it switches off LG preloads and some services and blocks a few LG ad
+    hosts, all in RAM and reapplied at boot. `tune restore` puts LG's own settings back.
+- **Faster cold boot and a Home without the cursor** when returning from an app.
+- **"For You" row** (optional): movie and series posters from the public Stremio catalogue
+  (Cinemeta) between the tabs and Favorites. Needs Stremio on the TV to open a title.
+- **Power off instead of the LG screensaver** when Luma is the Home.
+- A fork identity: app id `cc.ncls.luma`, update checks disabled (this project has no update feed yet).
 
-</details>
+It is **not** a promise of better performance or of removing all data collection by LG. Measure on
+your own TV.
 
-## Compatibility
+## Tested on
 
-> [!NOTE]
-> Luma should start on any TV running webOS 4 or newer. The following configurations have been
-> confirmed to work by the community. Home takeover support varies, as noted below:
+| TV               | Firmware    | Result                                                                  |
+| ---------------- | ----------- | ----------------------------------------------------------------------- |
+| LG `55UP751C0SF` | webOS 6.5.3 | Home replacement, debloat, boot hook, For You: used daily by the author |
 
-<details>
-<summary>webOS 4</summary>
+Anything else is untested. The upstream project reports Home replacement on webOS 5, 6, 25 and 26;
+see the [upstream README](docs/luma-upstream.md) for its device table. Run `luma-helper diagnose`
+before enabling anything.
 
-| TV        | Model identifier | Takeover Support |
-| --------- | ---------------- | ---------------- |
-| LG C8     | `OLED??C8*`      | ❌               |
-| LG C9     | `OLED65C97LA`    | Unknown          |
-| LG UM7450 | `UM74507LA`      | ❌               |
+## Install
 
-</details>
-
-<details>
-<summary>webOS 5</summary>
-
-| TV        | Model identifier | Takeover Support |
-| --------- | ---------------- | ---------------- |
-| LG UN7100 | `49UN71006LB`    | ✅               |
-
-</details>
-
-<details>
-<summary>webOS 6</summary>
-
-| TV        | Model identifier | Takeover Support |
-| --------- | ---------------- | ---------------- |
-| LG C1     | `OLED48C1KNB`    | ✅               |
-| LG UP8000 | `86UP80009LA`    | Unknown          |
-
-</details>
-
-<details>
-<summary>webOS 24</summary>
-
-| TV    | Model identifier | Takeover Support |
-| ----- | ---------------- | ---------------- |
-| LG B2 | `OLED65B29LA`    | ✅               |
-
-</details>
-
-<details>
-<summary>webOS 25</summary>
-
-| TV        | Model identifier | Takeover Support |
-| --------- | ---------------- | ---------------- |
-| LG B5     | `OLED77B5PUA`    | ✅               |
-| LG C2     | `OLED42C2PSA`    | ✅               |
-| LG C2     | `OLED65C2*`      | Unknown          |
-| LG C2     | `OLED77C2*`      | Unknown          |
-| LG C4     | `OLED42C4*`      | ✅               |
-| LG G3     | `OLED??G3*`      | Unknown          |
-| LG NANO77 | `55NANO776RA`    | ✅               |
-| LG QNED86 | `55QNED86T6A`    | Unknown          |
-| LG UT8050 | `50UT8050*`      | ✅               |
-
-</details>
-
-<details>
-<summary>webOS 26</summary>
-
-| TV    | Model identifier      | Takeover Support |
-| ----- | --------------------- | ---------------- |
-| LG C2 | `OLED65C2PSA`         | ✅               |
-| LG C3 | `OLED65C31LA`         | ✅               |
-| LG C3 | `OLED65C36LC`         | ✅               |
-| LG C5 | `OLED55C57LA`         | ✅               |
-| LG C5 | `OLED55C5PSA`         | Unknown          |
-| LG C6 | `OLED65C6*`           | Unknown          |
-| LG C6 | `OLED77C6*`           | ✅               |
-| LG G5 | `OLED83G5WUA.BUSYDJR` | ✅               |
-| LG G5 | `OLED77G5WUA.DUSQLJR` | ✅               |
-
-</details>
-
-## Installation
-
-### Homebrew Channel
-
-The fork does not yet publish a Homebrew feed.
-
-### SSH
-
-On your computer, replace `TV_IP`:
+Short version, from a computer on the same network as your rooted TV:
 
 ```sh
-scp -O dist/cc.ncls.luma_2.16.2_arm.ipk root@TV_IP:/tmp/luma.ipk
-ssh root@TV_IP
+scripts/install-tv.sh TV_IP dist/cc.ncls.luma_2.16.2_arm.ipk
 ```
 
-In the TV's root shell:
+The full guide, including prerequisites, enabling the Home replacement, the debloat and how to
+undo each step, is in **[docs/install.md](docs/install.md)** ([pt-BR](docs/install.pt-BR.md)).
+Prebuilt packages are on the [Releases](https://github.com/nicolaseliasx/lg-hush/releases) page, with checksums.
 
-```sh
-luna-send -i luna://com.webos.appInstallService/dev/install \
-  '{"id":"cc.ncls.luma","ipkUrl":"/tmp/luma.ipk","subscribe":true}'
-```
+## What it changes
 
-## Replacing LG Home
+| Step                     | What happens                                                                        | How to undo                                       |
+| ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Install the IPK          | Adds the app `cc.ncls.luma`                                                         | Uninstall it (disable the Home replacement first) |
+| `home.sh enable`         | Bind-mounts Luma over LG's Home and adds a boot hook. LG's files stay underneath.   | `home.sh disable`                                 |
+| `luma-helper tune apply` | RAM-only mounts over some LG services and ad hosts; LG's preload list is saved once | `luma-helper tune restore`                        |
 
-### Takeover Method
+A reboot without the boot hook gives LG's Home back. Details and the exact lists are in
+[development.md](development.md) ("Optional native Home integration", "Performance debloat").
 
-> [!NOTE]
-> Takeover is supported on **webOS 5, 6, 25 and 26**.\
-> The takeover does not delete LG Home: it remains underneath a temporary mount, which is cleared by
-> a reboot. If Luma is uninstalled first, LG Home returns on reboot, but the separate takeover boot
-> hook remains and logs an error because it can no longer find Luma. No TV reset is needed. For
-> clean removal, disable takeover before uninstalling.
+## Stremio Cards (not included)
 
-Install Luma and verify that it opens normally. Disable any Home-button mapping in
-[LG Input Hook](https://github.com/Simon34545/lginputhook) (remove its Home-key action) and any
-other Home replacement, then run in the TV's root SSH shell:
+The "For You" row can open a title directly if a second Stremio build that accepts launch
+parameters is installed as `cc.ncls.stremiocards`. That build is a third-party project without a
+licence, so it is **not** part of this repository. Without it, a card opens the official Stremio app
+and shows the title to search for.
 
-If you enabled Lumas autostart method earlier, disable it first:
-
-```sh
-APP=/media/developer/apps/usr/palm/applications/cc.ncls.luma
-sh "$APP/autostart.sh" disable
-```
-
-To enable the takeover run:
-
-```sh
-APP=/media/developer/apps/usr/palm/applications/cc.ncls.luma
-sh "$APP/home.sh" enable
-```
-
-To see the status or disable the home override use:
-
-```sh
-sh /var/lib/ncls-luma-home/home.sh status
-sh /var/lib/ncls-luma-home/home.sh disable
-```
-
-`restore` is an alias for `disable`.
-
-Boot log: `/var/lib/ncls-luma-home/boot.log`. See the
-[development guide](development.md#optional-native-home-integration) for implementation details.
-
-<details>
-<summary>Method for webOS 5 / 6</summary>
-
-On **webOS 5 and 6**, SAM cannot reread a mounted Home manifest, so `home.sh enable` instead
-bind-mounts Luma's executable over LG's `/usr/bin/com.webos.app.home`. LG's Home manifest stays
-in place and Luma registers with SAM itself, so the Home key brings the running Luma back instead
-of restarting it. The commands and the cold-boot hook are the same.
-
-</details>
-
-<details>
-<summary>Method for webOS 25 / 26</summary>
-
-Mounts Luma over the system Home app and reapplies the mount at cold boot. The LG splash
-shown before Luma's window opens is the wallpaper you selected in **Settings → Background**, staged
-from the saved preferences at each boot. Normal app launches also use your selected wallpaper:
-Luma updates the launch splash through Homebrew Channel's root service after loading or saving your
-settings. Open Luma once after installing or updating so subsequent launches use your saved background.
-LG Home's original files remain underneath, using the same approach as
-[Glasshouse Home](https://github.com/rorygallagher2024/glasshouse/blob/main/server/lib/home-takeover.js).
-
-</details>
-
-### Autostart Method
-
-Open Luma 25 seconds after a full cold boot. Run in the TV's root SSH shell:
-
-```sh
-sh /media/developer/apps/usr/palm/applications/cc.ncls.luma/autostart.sh enable
-```
-
-Use this when takeover is disabled. It launches Luma as a regular app and does not remap the Home button.
-
-Disable before enabling takeover or uninstalling Luma:
-
-```sh
-sh /media/developer/apps/usr/palm/applications/cc.ncls.luma/autostart.sh disable
-```
-
-### LG Input Hook Method
-
-You can use [LG Input Hook](https://repo.webosbrew.org/apps/org.webosbrew.inputhook/), configure an Execute action with this one-line command:
-
-```sh
-/usr/bin/luna-send -n 1 -w 5000 luna://com.webos.service.applicationmanager/launch '{"id":"cc.ncls.luma"}'
-```
-
-Test on a spare button first. Disable the mapping in Input Hook to restore normal Home behavior.
-
-## Features
-
-### Backgrounds
-
-Open **Settings → Background → Upload**, then scan the QR code or open the shown
-address on a phone or computer on the same network. Choose a JPEG, PNG or WebP and adjust
-its 16:9 crop before choosing **Save to TV**.
-
-The upload link works only while its TV dialog is open and focused.
-
-Enable **Rotation** beside **Upload** to cycle through backgrounds on each Luma restart and every
-15 minutes with a slow cross-fade. Rotation is off by default and leaves your manually chosen
-LG splash unchanged.
-
-Toggle **Gradient** beside **Rotation** to turn background shading on or off. It defaults to On
-and remembers your choice. Older uploads without an unshaded copy keep their full-resolution
-shaded image. This does not change LG's launch splash.
-
-### Recent app switching
-
-Press **Back** on Home, or hold **Back** for 0.6 seconds from any page, to open Recent apps.
-
-- **Left / Right**, the pointer, or the scroll wheel browses recent apps and inputs.
-- **OK** or a pointer click opens the selected app or input.
-- **Up** closes the selected app and removes its card.
-- **Back** dismisses the switcher and restores the previous page and focus.
-
-These shortcuts work while Luma is focused. From another app, return to Luma first.
-
-### Shortcut tiles
-
-Shortcut tiles sit on Home like apps but send a web request when selected, for example to a Home
-Assistant webhook. Open **Settings → Widgets → Shortcuts → Configure** and scan
-the QR code.
-
-## Development
-
-### Setup & Building
-
-From the repository root, with Nix flakes enabled:
+## Build
 
 ```sh
 nix develop
@@ -272,55 +78,34 @@ export WEBOS_NDK="$PWD/.build/toolchain/arm-webos-linux-gnueabi_sdk-buildroot"
 pnpm run package
 ```
 
-The first native runtime preparation also downloads a
-checksum-pinned SDL-webOS library; both downloads are cached under `.build/`.
-
 Output:
 
 ```text
 dist/cc.ncls.luma_2.16.2_arm.ipk
 dist/sha256sums
 dist/repo.json
-dist/app-icon-large.png
 ```
 
-Open [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop), connect to the TV's
-IP on port **22** as **root**, and install the IPK. Open **Luma** from the TV menu. Homebrew
-Channel must be elevated; on webOS 26 use **0.8.0-rc1 or newer** for its `lunabus.query` mapping.
+Desktop preview (no TV needed): `pnpm install --frozen-lockfile && pnpm assets && pnpm dev`.
+See [development.md](development.md) for the source layout, tests and diagnostics.
 
-The native package uses **`cc.ncls.luma`** and installs separately from the old
-`com.luma.launcher` web app and the former `com.luma.launcher.native` / `com.luma.native` prototypes. Native preferences
-are local JSON files and are separate for each installation; browser preferences are not migrated.
-Homebrew Channel treats this ID as a separate app rather than an update to the old launcher.
+## Documents
 
-Wait for installation success; Ctrl+C closes an ongoing subscription. Fully close and reopen
-Luma after updating. The [development guide](development.md#tv-startup-diagnostics) has a jailed
-launch command that exposes errors hidden by the normal menu launch.
+- [Install guide](docs/install.md) · [pt-BR](docs/install.pt-BR.md)
+- [Project plans and measurements](docs/plans/README.md) (in Portuguese)
+- [Upstream Luma README](docs/luma-upstream.md)
+- [Development guide](development.md) · [Releasing](docs/releasing.md) · [Changelog](CHANGELOG.md)
 
-## Preview
+## Credits
 
-```sh
-nix develop
-pnpm install --frozen-lockfile
-pnpm assets
-pnpm dev
-```
+- **[Luma](https://github.com/ecklf/lg-luma)** by ecklf and contributors, MIT: the launcher this is based on.
+- **[webosbrew](https://www.webosbrew.org/)** and the Homebrew Channel, which make rooted TV apps possible.
+- **[SDL-webOS](https://github.com/webosbrew/SDL-webOS)**, **[Cinemeta](https://v3-cinemeta.strem.io/)** and the other
+  third-party sources listed in [`assets/licenses`](assets/licenses).
+- [Glasshouse](https://github.com/rorygallagher2024/glasshouse) and CleanYourTV, studied as references for the debloat.
 
-The desktop preview uses sample inventory and never calls TV services. To manually exercise a
-longer app grid:
-
-```sh
-pnpm dev --test-extra-apps 120
-```
-
-Preview preferences are separate from normal preferences. See [development.md](development.md)
-for controls, vector rendering, diagnostics, tests and the source layout.
-
-For release-worthy changes, include a file generated by `pnpm changeset` in your PR. The automated
-Version Packages PR synchronizes app versions and publishes after merging and passing CI.
-See [Releases](development.md#releases) for the workflow and repository setup.
+lg-hush is not affiliated with LG, Stremio, Apple or any other brand shown in its UI.
 
 ## License
 
-Luma is licensed under MIT.\
-Luma is not affiliated with LG, Apple, or any other brands shown in its UI.
+MIT. The original notice is kept; see [license](license).

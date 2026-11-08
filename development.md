@@ -1085,13 +1085,15 @@ run independently.
 
 ## Releases
 
+> **lg-hush:** the upstream workflows described in this section (`changeset-status.yml`, `release-pr.yml`) were removed from this fork; releases are cut by hand, see [docs/releasing.md](docs/releasing.md). `ci.yml` and `pr-test-ipk.yml` remain.
+
 Add a changeset to feature/fix PRs that should be included in the next app release:
 
 ```sh
 pnpm changeset
 ```
 
-Select `lg-luma`, choose patch/minor/major and describe the change. Commit the generated file
+Select `lg-hush`, choose patch/minor/major and describe the change. Commit the generated file
 under `.changeset/` with the PR. Documentation-only and maintenance PRs that do not need a release
 can omit it. Keep the existing app version in ordinary PRs.
 

@@ -1,5 +1,5 @@
 ---
-'lg-luma': major
+'lg-hush': major
 ---
 
 Install the fork as `cc.ncls.luma`, separate its Home and preferences state from

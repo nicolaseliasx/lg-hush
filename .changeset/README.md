@@ -1,6 +1,6 @@
 # Changesets
 
-Run `pnpm changeset` in a feature or fix branch, select `lg-luma`, choose a patch, minor or major
+Run `pnpm changeset` in a feature or fix branch, select `lg-hush`, choose a patch, minor or major
 bump, and describe the user-facing change. Commit the generated Markdown file with the PR.
 Documentation-only and maintenance PRs that do not need a release can omit a changeset.
 

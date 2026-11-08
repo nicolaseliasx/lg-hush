@@ -1,3 +1,33 @@
+# lg-hush agent context
+
+lg-hush is a derivative of [ecklf/lg-luma](https://github.com/ecklf/lg-luma) (MIT). The sections
+below are upstream's technical context and still apply; this block lists what differs.
+
+## lg-hush specifics
+
+- Package `lg-hush` (changesets use this name); app id `cc.ncls.luma` and executable `luma` are
+  unchanged on purpose: the TV's Home hook and the installed integration depend on them. Do not
+  rename them without a migration.
+- Fork-only code: `tv-helper/` (`luma-helper diagnose|tune`), `src/for_you*.rs` ("For You" row),
+  `src/sleep.rs` (power off instead of the screensaver). Docs: `docs/install.md`, `docs/plans/`
+  (Portuguese working notes and measurements). `docs/luma-upstream.md` is upstream's README.
+- `readme.md` must keep a versioned `cc.ncls.luma_X.Y.Z_arm.ipk` example: `tools/sync-version.mjs`
+  and the release tests rewrite it. Do not rename the file.
+- Stremio Cards (`cc.ncls.stremiocards`) is third-party code without a licence. Never add it, its
+  patches or its binaries here. The `.ipk`, ffmpeg and any other third-party binary stay out of git.
+- `.env` (TV address) is local and ignored. Never commit addresses, keys or TV credentials.
+- `scripts/*.sh` talk to a TV over `ssh -tt` (a PTY is required: `luna-send` over SSH without one
+  returns empty output). They were checked with `sh -n` and `--dry-run` only, not on a TV in CI.
+- Release workflows from upstream (`release-pr.yml`, `changeset-status.yml`) were removed: they
+  publish an upstream-style Homebrew feed. Releases are cut by hand, see `docs/releasing.md`.
+- Commits and pushes only on explicit request; author and committer `nicolaseliasx <nicolas@ncls.cc>`,
+  no agent attribution trailers.
+- Toolchain note: Clippy newer than the pinned Rust 1.93 adds lints (`chunks_exact_to_as_chunks`,
+  `collapsible_match`, `manual_checked_ops`) that flag upstream code; validate with the pinned
+  toolchain (`nix develop`) or allow those three explicitly.
+- The main desktop smoke (`pnpm test:smoke`) renders ~45 scenarios and takes several minutes; its
+  recents scenario asserts `recents_visibility == 1` and fails if the machine is busy.
+
 # Luma agent context
 
 ## Project

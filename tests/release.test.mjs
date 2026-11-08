@@ -43,7 +43,7 @@ test('fork package uses its own identity and release repository by default', asy
   });
   assert.equal(result.status, 0, result.stderr);
   const feed = JSON.parse(await fs.readFile(path.join(directory, 'dist/repo.json'), 'utf8'));
-  assert.equal(feed.packages[0].manifest.sourceUrl, 'https://github.com/nicolaseliasx/lg-luma');
+  assert.equal(feed.packages[0].manifest.sourceUrl, 'https://github.com/nicolaseliasx/lg-hush');
   assert.match(feed.packages[0].manifest.ipkUrl, /\/cc\.ncls\.luma_/);
 });
 
@@ -128,11 +128,11 @@ test('the real release command combines changesets and synchronizes every file',
   await fs.symlink(path.join(root, 'node_modules'), path.join(directory, 'node_modules'), 'dir');
   await fs.writeFile(
     path.join(directory, '.changeset/fix.md'),
-    '---\n"lg-luma": patch\n---\n\nFix release behavior.\n',
+    '---\n"lg-hush": patch\n---\n\nFix release behavior.\n',
   );
   await fs.writeFile(
     path.join(directory, '.changeset/feature.md'),
-    '---\n"lg-luma": minor\n---\n\nAdd a release feature.\n',
+    '---\n"lg-hush": minor\n---\n\nAdd a release feature.\n',
   );
   const result = spawnSync('pnpm', ['version:release'], {
     cwd: directory,
