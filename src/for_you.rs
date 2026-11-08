@@ -1,5 +1,5 @@
-//! "Para Você" data: Cinemeta catalogs (Stremio's public catalog) reduced to cards.
-//! No account or key; titles and genres come in English, genres are translated here.
+//! "Continue Watching": titles in progress in the owner's Stremio library, read with a session
+//! key saved on the TV (never in this repository).
 use crate::i18n::Language;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,9 +13,9 @@ pub const STREMIO_CARDS: &str = "cc.ncls.stremiocards";
 /// The official app (ignores launch parameters on webOS 6.5).
 pub const STREMIO: &str = "io.strem.tv";
 
-/// Cards shown at most; also the number of cached images.
-pub const COUNT: usize = 12;
-const FRESH_SECONDS: i64 = 6 * 3600;
+/// Titles in progress shown at most; also the number of cached posters.
+pub const COUNT: usize = 8;
+const RESUME_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -37,21 +37,18 @@ pub struct Item {
     pub id: String,
     pub kind: Kind,
     pub title: String,
-    pub genres: Vec<String>,
-    /// Minutes (per episode for series).
-    pub runtime: Option<u32>,
+    pub resume: Resume,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Cache {
-    /// Unix seconds of the fetch.
-    pub fetched: i64,
-    pub items: Vec<Item>,
-}
-impl Cache {
-    pub fn fresh(&self, now: i64) -> bool {
-        (self.fetched..self.fetched + FRESH_SECONDS).contains(&now)
-    }
+/// Where the owner stopped: the share watched and, when known, the time left and episode.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct Resume {
+    /// 0 to 1; 0 when the duration is unknown.
+    pub progress: f32,
+    /// Minutes left.
+    pub remaining: Option<u32>,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
 }
 
 /// IMDb ids only: they become image file names and launch parameters.
@@ -61,119 +58,135 @@ pub fn valid_id(id: &str) -> bool {
     })
 }
 
-pub fn parse_catalog(catalog: &Value, kind: Kind, limit: usize) -> Vec<Item> {
-    catalog["metas"]
+/// Stremio's "Continue Watching" from a `datastoreGet` answer for `libraryItem`: movies and
+/// series with progress that are kept in the library or were only watched (`temp`), the most
+/// recently watched first. The same rule as Stremio's own row.
+pub fn parse_library(response: &Value, limit: usize) -> Vec<Item> {
+    let mut entries: Vec<(&str, Item)> = response["result"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|meta| {
-            let id = meta["id"].as_str().filter(|id| valid_id(id))?;
-            let title = meta["name"]
+        .filter_map(|entry| {
+            let id = entry["_id"].as_str().filter(|id| valid_id(id))?;
+            let kind = match entry["type"].as_str()? {
+                "movie" => Kind::Movie,
+                "series" => Kind::Series,
+                _ => return None,
+            };
+            let removed = entry["removed"].as_bool().unwrap_or(false);
+            let temp = entry["temp"].as_bool().unwrap_or(false);
+            let state = &entry["state"];
+            let offset = state["timeOffset"].as_u64().unwrap_or(0);
+            if offset == 0 || (removed && !temp) {
+                return None;
+            }
+            let title = entry["name"]
                 .as_str()
                 .map(str::trim)
                 .filter(|t| !t.is_empty())?;
-            let genres = meta["genres"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .take(3)
-                .map(str::to_owned)
-                .collect();
-            let runtime = meta["runtime"]
-                .as_str()
-                .and_then(|r| r.split_whitespace().next())
-                .and_then(|m| m.parse::<u32>().ok())
-                .filter(|m| (1..=1000).contains(m));
-            Some(Item {
-                id: id.into(),
-                kind,
-                title: title.chars().take(120).collect(),
-                genres,
-                runtime,
-            })
+            let duration = state["duration"].as_u64().unwrap_or(0);
+            let (progress, remaining) = if duration > 0 {
+                let left = duration.saturating_sub(offset);
+                (
+                    (offset as f64 / duration as f64).min(1.) as f32,
+                    Some(((left + 30_000) / 60_000) as u32),
+                )
+            } else {
+                (0., None)
+            };
+            let number = |key: &str| {
+                state[key]
+                    .as_u64()
+                    .filter(|n| kind == Kind::Series && (1..=10_000).contains(n))
+                    .map(|n| n as u32)
+            };
+            let last = state["lastWatched"].as_str().unwrap_or("");
+            Some((
+                last,
+                Item {
+                    id: id.into(),
+                    kind,
+                    title: title.chars().take(120).collect(),
+                    resume: Resume {
+                        progress,
+                        remaining,
+                        season: number("season"),
+                        episode: number("episode"),
+                    },
+                },
+            ))
         })
+        .collect();
+    // ISO 8601 timestamps in UTC sort as text.
+    entries.sort_by(|a, b| b.0.cmp(a.0));
+    entries
+        .into_iter()
+        .map(|(_, item)| item)
         .take(limit)
         .collect()
 }
 
-/// Movie, series, movie, … until `count`; whichever list is longer fills the rest.
-pub fn interleave(movies: Vec<Item>, series: Vec<Item>, count: usize) -> Vec<Item> {
-    let mut seen = HashSet::new();
-    let (mut movies, mut series) = (movies.into_iter(), series.into_iter());
-    let mut items = vec![];
-    while items.len() < count {
-        let next = if items.len() % 2 == 0 {
-            movies.next().or_else(|| series.next())
-        } else {
-            series.next().or_else(|| movies.next())
-        };
-        let Some(item) = next else { break };
-        if seen.insert(item.id.clone()) {
-            items.push(item);
-        }
-    }
-    items
+/// The session key from the file `scripts/stremio-login.sh` writes: `{"authKey": "…"}`.
+pub fn auth_key(bytes: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    value["authKey"]
+        .as_str()
+        .filter(|key| (1..=512).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_graphic()))
+        .map(str::to_owned)
 }
 
-fn genre(name: &str, language: Language) -> &str {
-    if language != Language::Pt {
-        return name;
-    }
-    match name {
-        "Action" => "Ação",
-        "Adventure" => "Aventura",
-        "Animation" => "Animação",
-        "Biography" => "Biografia",
-        "Comedy" => "Comédia",
-        "Documentary" => "Documentário",
-        "Family" => "Família",
-        "Fantasy" => "Fantasia",
-        "History" => "História",
-        "Horror" => "Terror",
-        "Music" => "Música",
-        "Mystery" => "Mistério",
-        "Sci-Fi" => "Ficção científica",
-        "Sport" => "Esporte",
-        "Thriller" => "Suspense",
-        "War" => "Guerra",
-        "Western" => "Faroeste",
-        "News" => "Notícias",
-        "Reality-TV" => "Reality",
-        _ => name,
-    }
-}
-
-/// "Terror · 1h 49min": first genre and runtime, each only when known.
-pub fn caption(item: &Item, language: Language) -> String {
+fn duration(minutes: u32, language: Language) -> String {
     let minute = if language == Language::En { "m" } else { "min" };
-    let runtime = item.runtime.map(|m| match (m / 60, m % 60) {
+    match (minutes / 60, minutes % 60) {
         (0, m) => format!("{m}{minute}"),
         (h, 0) => format!("{h}h"),
         (h, m) => format!("{h}h {m}{minute}"),
+    }
+}
+
+/// Where the title stopped, each part only when known: "T1 E1 · faltam 52min".
+pub fn caption(item: &Item, language: Language) -> String {
+    let resume = &item.resume;
+    let episode = resume.season.zip(resume.episode).map(|(s, e)| {
+        language.format(
+            "resumeEpisode",
+            &[("season", &s.to_string()), ("episode", &e.to_string())],
+        )
     });
-    item.genres
-        .first()
-        .map(|g| genre(g, language).to_owned())
+    let left = resume
+        .remaining
+        .filter(|m| *m > 0)
+        .map(|m| language.format("resumeLeft", &[("time", &duration(m, language))]));
+    episode
         .into_iter()
-        .chain(runtime)
+        .chain(left)
         .collect::<Vec<_>>()
         .join(" · ")
 }
 
-/// The Home row: cached cards, which images are on disk, and its own horizontal scroll.
+/// The Home row: titles in progress, which posters are on disk, and its own horizontal scroll.
 #[derive(Default)]
 pub struct Row {
     pub items: Vec<Item>,
+    resume_checked: Option<std::time::Instant>,
     pub ready: HashSet<String>,
-    pub fetched: i64,
-    /// A refresh was started this session.
-    pub requested: bool,
     pub scroll: f32,
     pub images: PathBuf,
     pub warm: Warm,
 }
 impl Row {
+    /// The library is read again at most once a minute while Home is on screen, so coming
+    /// back from Stremio shows where the owner stopped.
+    pub fn resume_due(&mut self, now: std::time::Instant) -> bool {
+        if self
+            .resume_checked
+            .is_some_and(|last| now < last + RESUME_INTERVAL)
+        {
+            return false;
+        }
+        self.resume_checked = Some(now);
+        true
+    }
     /// The image file, only once the service has saved it (a failed load is never retried).
     pub fn image(&self, id: &str) -> Option<String> {
         self.ready

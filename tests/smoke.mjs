@@ -76,21 +76,16 @@ try {
   };
   const home = await scenario('home', 'down');
   assert.deepEqual(home.focus, { App: 'netflix' });
-  // A fresh install is pure black with no weather, greeting or date.
+  // A fresh install is pure black.
   assert.equal(home.preferences.background, 'onyx');
-  assert.equal(home.preferences.show_weather, false);
-  assert.equal(home.preferences.show_greeting, false);
-  assert.equal(home.preferences.show_date, false);
   assert.equal(home.preferences.wallpaper_gradient, false);
-  // The remaining scenarios exercise the widgets and the upstream gallery order, so start from that look.
+  // The remaining scenarios exercise the upstream gallery order, so start from that look.
   const upstreamLook = {
     background: 'dunes',
     deleted_backgrounds: ['onyx'],
-    show_greeting: true,
-    show_date: true,
     wallpaper_gradient: true,
   };
-  await fs.writeFile(preferences, JSON.stringify({ ...upstreamLook, show_weather: true }));
+  await fs.writeFile(preferences, JSON.stringify(upstreamLook));
   const recents = await scenario('recents', 'recents,await-recents');
   assert.equal(recents.modal, true);
   assert.deepEqual(recents.focus, { Recent: 'netflix' });
@@ -234,7 +229,7 @@ try {
   assert.equal(clock.focus, 'ClockFormat');
   assert.ok(clock.ui_text.includes('Clock format'));
   assert.ok(clock.ui_text.includes('Time format'));
-  const inputsPage = 'settings,down,down,down,enter,down,down,down,down,enter';
+  const inputsPage = 'settings,down,down,down,enter,down,enter';
   const inputs = await scenario('inputs-page', inputsPage);
   assert.equal(inputs.subpage, 'Inputs');
   assert.deepEqual(inputs.focus, { InputMode: 'com.webos.app.hdmi1' });
@@ -296,43 +291,11 @@ try {
   assert.ok(profiled.render.profile.cpu_submission.mean_ms >= 0);
   const widgetsPage = 'settings,down,down,down,enter';
   const widgets = await scenario('widgets-settings', widgetsPage);
-  assert.deepEqual(widgets.focus, { Widget: 4 });
+  assert.deepEqual(widgets.focus, { Widget: 5 });
   assert.ok(widgets.ui_text.includes('Widgets'));
-  for (const title of ['Date', 'Greeting', 'Weather', 'Shortcuts', 'Inputs'])
-    assert.ok(widgets.ui_text.includes(title));
-  const greetingEditor = `${widgetsPage},down,enter,down,enter`;
-  for (const [id, name] of [
-    ['Ana', 'Ana'],
-    ['Bob', 'Bob'],
-    ['long', 'Alexandra Catherine Elizabeth Montgomery'],
-    ['wide', 'W'.repeat(40)],
-    ['cjk', '小明'.repeat(20)],
-    ['korean', '한글'.repeat(20)],
-  ]) {
-    const named = await scenario(
-      `greeting-${id}`,
-      `${greetingEditor},type:${name},back,home`,
-      fixedTime,
-    );
-    assert.equal(named.preferences.greeting_name, name);
-    assert.ok(named.ui_text.includes(`Good evening, ${name}.`));
-    if (name.length > 30) {
-      assert.ok(
-        named.render.capture.max_logical_font_px < 90.4,
-        'Long greetings must shrink instead of wrapping into a cropped second line',
-      );
-    }
-    assert.equal(
-      JSON.parse(await fs.readFile(preferences, 'utf8')).greeting_name,
-      name,
-      'Keyboard completion must save without waiting for another SDL input event',
-    );
-  }
-  const greeting = await scenario('greeting-settings', `${widgetsPage},down,enter,down,down`);
-  assert.equal(greeting.subpage, 'Greeting');
-  assert.equal(greeting.focus, 'GreetingNameClear');
-  assert.ok(greeting.ui_text.includes('Clear name'));
-
+  for (const title of ['Continue Watching', 'Inputs']) assert.ok(widgets.ui_text.includes(title));
+  for (const title of ['Date', 'Greeting', 'Weather', 'Shortcuts'])
+    assert.ok(!widgets.ui_text.includes(title));
   const appNamesEditor = 'settings,down,enter,enter';
   const appNames = await scenario('app-name-settings', appNamesEditor);
   assert.equal(appNames.subpage, 'AppNames');
@@ -435,66 +398,6 @@ try {
   const msaa = await scenario('text-rendering-msaa', 'home,down');
   assert.equal(msaa.render.text_rendering.mode, 'msaa');
   assert.equal(msaa.render.text_rendering.embolden, 0);
-  // Companion HTTP writes are covered by loopback Rust tests. Seed its persisted result
-  // here to render the TV's read-only detail/removal flow without a TV keyboard editor.
-  const beforeShortcut = JSON.parse(await fs.readFile(preferences, 'utf8'));
-  await fs.writeFile(
-    preferences,
-    JSON.stringify({
-      ...beforeShortcut,
-      custom_tiles: [
-        {
-          id: 'custom.sandmann',
-          title: 'Sandmann',
-          url: 'http://127.0.0.1:9/api/webhook/luma',
-          method: 'POST',
-        },
-      ],
-      favorites: [...beforeShortcut.favorites, 'custom.sandmann'],
-    }),
-  );
-  const shortcutsPage = `${widgetsPage},down,down,down,enter`;
-  const shortcut = await scenario('shortcut-settings', shortcutsPage);
-  assert.equal(shortcut.focus, 'TileEditor');
-  assert.equal(shortcut.subpage, 'Shortcuts');
-  assert.deepEqual(shortcut.preferences.custom_tiles, [
-    {
-      id: 'custom.sandmann',
-      title: 'Sandmann',
-      url: 'http://127.0.0.1:9/api/webhook/luma',
-      method: 'POST',
-    },
-  ]);
-  assert.ok(shortcut.preferences.favorites.includes('custom.sandmann'));
-  assert.ok(shortcut.ui_text.includes('Configure'));
-  assert.ok(shortcut.ui_text.includes('Sandmann'));
-  assert.ok(
-    !shortcut.ui_text.includes('Type names and addresses there instead of with the remote'),
-  );
-  assert.ok(!shortcut.ui_text.includes('Add shortcut'));
-  assert.ok(!shortcut.ui_text.includes('Request method'));
-  // Scenarios share one preferences file, so the tile is removed again here.
-  const removed = await scenario('shortcut-removed', `${shortcutsPage},down,enter,down,enter`);
-  assert.equal(removed.focus, 'TileEditor');
-  assert.equal(removed.subpage, 'Shortcuts');
-  assert.deepEqual(removed.preferences.custom_tiles, []);
-  assert.ok(!removed.preferences.favorites.includes('custom.sandmann'));
-  assert.ok(!removed.inventory.some((app) => app.id === 'custom.sandmann'));
-  const tileEditorOpen = `${shortcutsPage},enter,await-tile-editor`;
-  const tileEditor = await scenario('tile-editor', tileEditorOpen);
-  assert.equal(tileEditor.modal, true);
-  assert.equal(tileEditor.focus, 'CloseDialog');
-  assert.ok(tileEditor.ui_text.includes('Edit on phone or computer'));
-  assert.ok(tileEditor.ui_text.includes('Scan this QR code'));
-  assert.ok(tileEditor.ui_text.some((text) => text.startsWith('Keep this window open while')));
-  assert.ok(
-    tileEditor.ui_text.some((text) =>
-      /^http:\/\/127\.0\.0\.1:\d+\/[1-9A-HJ-NP-Za-km-z]{8}$/.test(text),
-    ),
-  );
-  const tileEditorClosed = await scenario('tile-editor-closed', `${tileEditorOpen},back`);
-  assert.equal(tileEditorClosed.modal, false);
-  assert.equal(tileEditorClosed.focus, 'TileEditor');
   // The exposed card fragments are real pointer targets, including after remote scrolling.
   const edgeFavorites = [
     'netflix',
@@ -507,10 +410,7 @@ try {
     'ard.mediathek',
     'plex',
   ];
-  await fs.writeFile(
-    preferences,
-    JSON.stringify({ ...upstreamLook, favorites: edgeFavorites, show_weather: false }),
-  );
+  await fs.writeFile(preferences, JSON.stringify({ ...upstreamLook, favorites: edgeFavorites }));
   const edgeRight = await scenario('favorites-edge-right', 'home,click:1860:600');
   assert.deepEqual(edgeRight.focus, { App: edgeFavorites[6] });
   assert.equal(edgeRight.home_scroll, 0, 'Clicking the fragment must not move it');
@@ -520,10 +420,11 @@ try {
   );
   assert.deepEqual(edgeLeft.focus, { App: edgeFavorites[0] });
   assert.ok(
-    Math.abs(edgeLeft.home_scroll - 281.6) < 0.01,
+    // One favorite: the 2% larger card (256 × 1.02) plus the 25.6 gap.
+    Math.abs(edgeLeft.home_scroll - (256 * 1.02 + 25.6)) < 0.01,
     'Pointer focus preserves strip position',
   );
-  await fs.writeFile(preferences, JSON.stringify({ ...upstreamLook, show_weather: false }));
+  await fs.writeFile(preferences, JSON.stringify(upstreamLook));
   const gradientDisabled = await scenario(
     'wallpaper-gradient-disabled',
     'settings,down,down,enter,up,up,right,enter',

@@ -108,9 +108,9 @@ jobs:
           - suite: Brand gallery
             script: tests/brands-smoke.mjs
             artifact: brands
-          - suite: Mock weather
-            script: tests/weather-smoke.mjs
-            artifact: weather
+          - suite: Continue Watching
+            script: tests/for-you-smoke.mjs
+            artifact: continue-watching
           - suite: Translations
             script: tests/translations-smoke.mjs
             artifact: translations

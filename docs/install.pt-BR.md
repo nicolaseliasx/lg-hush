@@ -114,12 +114,21 @@ numa `55UP751C0SF` com webOS 6.5.3; em outro firmware, confira antes
 
 Desfazer: `"$APP/luma-helper" tune restore`, ou desativar a troca da Home (ela desfaz o debloat antes).
 
-## 7. Linha "For You" e Stremio (opcional)
+## 7. Continuar assistindo e Stremio (opcional)
 
-Ligue **For You** nas configurações do Luma; ela só aparece com saudação, data e clima
-desligados. Um card abre o Stremio oficial e mostra o título para você buscar. Abrir o título
-direto exige um build do Stremio que aceite parâmetros de lançamento instalado como
-`cc.ncls.stremiocards`, um projeto de terceiros à parte que não é distribuído aqui.
+A fileira **Continuar assistindo** mostra o que está em andamento na sua biblioteca do Stremio.
+Entre uma vez:
+
+```sh
+scripts/stremio-login.sh IP_DA_TV            # pede o e-mail e a senha do Stremio
+scripts/stremio-login.sh IP_DA_TV --logout   # remove a chave salva
+```
+
+A senha vai só para `api.strem.io`; a TV guarda apenas a chave de sessão, legível só pelo Luma.
+Desligue a fileira em **Configurações → Widgets → Continue Watching**. Um card abre o Stremio
+oficial e mostra o título para você buscar. Abrir o título direto exige um build do Stremio que
+aceite parâmetros de lançamento instalado como `cc.ncls.stremiocards`, um projeto de terceiros à
+parte que não é distribuído aqui.
 
 ## 8. Desfazer tudo
 

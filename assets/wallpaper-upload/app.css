@@ -18,25 +18,6 @@ main {
   margin: 0 auto;
   padding: 34px 0 28px;
 }
-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 56px;
-}
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  color: #f4f5f2;
-  font-size: 23px;
-  font-weight: 600;
-  letter-spacing: -1.3px;
-}
-.brand img {
-  width: 29px;
-  height: 29px;
-  object-fit: contain;
-}
 h1 {
   margin: 0;
   font-size: 28px;
@@ -288,9 +269,6 @@ footer code {
 @media (max-width: 520px) {
   main {
     padding-top: 25px;
-  }
-  header {
-    margin-bottom: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

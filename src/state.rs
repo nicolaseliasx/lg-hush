@@ -1,10 +1,9 @@
 use crate::i18n::Language;
 use crate::model::{
-    App, BACKGROUNDS, CATEGORIES, CUSTOM_TILE_PREFIX, CustomTile, INPUT_NAME_LIMIT, InputMode,
-    Inventory, Preferences, clean_input_name,
+    App, BACKGROUNDS, CATEGORIES, INPUT_NAME_LIMIT, InputMode, Inventory, Preferences,
+    clean_input_name,
 };
 use crate::text_rendering::TextRendering;
-use crate::weather::{self, Unit};
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
@@ -20,9 +19,11 @@ pub const INVENTORY_RETRY_DELAY: Duration = Duration::from_secs(2);
 pub const HOME_STRIP_LEFT: f32 = 84.;
 // Six favourites in full and the seventh cut off and fading out at the right (Apple TV rows):
 // the strip ends after the sixth tile, so a focused tile never sits in the fade.
-pub const HOME_STRIP_RIGHT: f32 = 1748.;
-pub const HOME_TILE_WIDTH: f32 = 256.;
-pub const HOME_TILE_PITCH: f32 = 281.6;
+pub const HOME_STRIP_RIGHT: f32 = HOME_STRIP_LEFT + 5. * HOME_TILE_PITCH + HOME_TILE_WIDTH;
+/// Favorites are 2% larger than upstream's 256 × 154.4 cards; the 25.6 gap is unchanged.
+pub const HOME_TILE_WIDTH: f32 = 256. * 1.02;
+pub const HOME_TILE_HEIGHT: f32 = 154.4 * 1.02;
+pub const HOME_TILE_PITCH: f32 = HOME_TILE_WIDTH + 25.6;
 pub const HOME_FADE_LEFT: f32 = 8.;
 pub const HOME_FADE_RIGHT: f32 = 1910.;
 /// "For You" posters: 2:3, between the tabs and Favorites.
@@ -69,11 +70,6 @@ pub enum Target {
     Sidebar(usize),
     Setting(usize),
     Widget(usize),
-    GreetingName,
-    GreetingNameClear,
-    GreetingToggle,
-    DateToggle,
-    DateFormat,
     AppNamesHome,
     AppNamesApps,
     ClockFormat,
@@ -96,18 +92,6 @@ pub enum Target {
     ConfirmDelete,
     CancelDelete,
     Key(usize),
-    WeatherConfigure,
-    WeatherToggle,
-    WeatherLocation,
-    WeatherTemperature,
-    WeatherQuery,
-    WeatherSearch,
-    WeatherClear,
-    WeatherResult(usize),
-    Tile(String),
-    TileTest(String),
-    TileRemove(String),
-    TileEditor,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -147,7 +131,6 @@ pub enum Overlay {
     Keyboard,
     SystemKeyboard,
     WallpaperUpload,
-    TileEditor,
     BackgroundOptions { id: String, restore: Target },
     BackgroundDelete { id: String, restore: Target },
 }
@@ -155,18 +138,11 @@ pub enum Overlay {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum Subpage {
     AppNames,
-    Greeting,
-    Date,
-    DateFormat,
-    Weather,
-    Shortcuts,
     Inputs,
     Clock,
     ClockFormat,
     TimeFormat,
     Input(String),
-    WeatherLocation,
-    Temperature,
     Language,
     TextRendering,
 }
@@ -174,8 +150,6 @@ pub enum Subpage {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum TextField {
     Apps,
-    Location,
-    Name,
     InputName,
 }
 
@@ -203,12 +177,9 @@ pub enum Effect {
         generation: u64,
         command: crate::recents::Command,
     },
-    /// Fire-and-forget HTTP request for a custom tile, off the SDL thread.
-    FireWebhook(CustomTile),
     Quit,
     /// Hide the webOS Magic Remote cursor; the system shows it again when the remote moves.
     HideCursor,
-    Weather(weather::Command),
     UpdateDownload(String),
 }
 
@@ -253,13 +224,10 @@ pub struct State {
     pub wallpapers: Vec<crate::wallpapers::Wallpaper>,
     pub deleting_wallpaper: Option<String>,
     pub wallpaper_upload: Option<Result<crate::wallpapers::Session, String>>,
-    pub tile_editor: Option<Result<crate::companion::Session, String>>,
     /// Luma update (Settings → System), driven by the update worker.
     pub update: crate::update::InstallStatus,
     pub panel_started: Option<Instant>,
-    pub weather: weather::Weather,
     pub keyboard_field: TextField,
-    pub greeting_name_draft: String,
     pub input_name: String,
     pub recents: crate::recents::Recents,
     pub for_you: crate::for_you::Row,
@@ -300,12 +268,9 @@ impl State {
             wallpapers: vec![],
             deleting_wallpaper: None,
             wallpaper_upload: None,
-            tile_editor: None,
             update: crate::update::InstallStatus::default(),
             panel_started: None,
-            weather: weather::Weather::default(),
             keyboard_field: TextField::Apps,
-            greeting_name_draft: String::new(),
             input_name: String::new(),
             recents: crate::recents::Recents::default(),
         }
@@ -468,7 +433,6 @@ impl State {
     }
 
     pub fn open(&mut self, index: usize) {
-        self.weather.cancel_search();
         self.page = match index {
             1 => Page::Apps,
             2 => Page::Settings,
@@ -648,7 +612,6 @@ impl State {
 
     pub fn set_inventory(&mut self, next: Inventory, warning: Option<String>) {
         self.inventory.apps = next.apps;
-        self.sync_custom_tiles();
         if let Some(warning) = warning {
             self.notify(warning);
         } else {
@@ -690,14 +653,9 @@ impl State {
     /// Homebrew service that reads the inventory can take longer than one request allows. While
     /// no apps are shown yet, the screen keeps loading and the caller retries after the returned
     /// delay; the error and its Retry button only appear once those retries are used up.
-    /// Custom tiles come from preferences, not the TV, so they don't count as loaded apps.
     pub fn inventory_failed(&mut self, error: String) -> Option<Duration> {
         self.dirty = true;
-        let no_tv_apps = self
-            .inventory
-            .apps
-            .iter()
-            .all(|app| app.id.starts_with(CUSTOM_TILE_PREFIX));
+        let no_tv_apps = self.inventory.apps.is_empty();
         if no_tv_apps && self.inventory_failures < INVENTORY_RETRIES {
             self.inventory_failures += 1;
             return Some(INVENTORY_RETRY_DELAY);
@@ -706,17 +664,6 @@ impl State {
         self.loading = false;
         self.error = Some(error);
         None
-    }
-
-    /// Custom webhook tiles are never read from the TV. They are merged into
-    /// the inventory on every refresh and edit, so favoriting, hiding and
-    /// search treat them like any other app.
-    pub fn sync_custom_tiles(&mut self) {
-        self.inventory
-            .apps
-            .retain(|app| !app.id.starts_with(CUSTOM_TILE_PREFIX));
-        self.inventory.apps.extend(self.preferences.custom_apps());
-        self.dirty = true;
     }
 
     pub fn reconcile_focus(&mut self) {
@@ -739,15 +686,9 @@ impl State {
         }
     }
 
-    /// "For You" shares the space of the greeting, date and weather: it shows only when they
-    /// are off, it is enabled and it has titles.
+    /// "Continue Watching" shows when it is enabled and some title is in progress.
     pub fn for_you_visible(&self) -> bool {
-        let p = &self.preferences;
-        p.show_for_you
-            && !p.show_greeting
-            && !p.show_date
-            && !p.show_weather
-            && !self.for_you.items.is_empty()
+        self.preferences.show_for_you && !self.for_you.items.is_empty()
     }
 
     /// The first card not scrolled away.
@@ -791,9 +732,6 @@ impl State {
         self.focus = target;
         self.reveal_focus(controls);
         if let Target::Sidebar(section) = self.focus {
-            if self.subpage == Some(Subpage::WeatherLocation) {
-                self.weather.cancel_search();
-            }
             self.section = section;
             self.subpage = None;
         }
@@ -873,9 +811,6 @@ impl State {
             return;
         }
         if let Target::Sidebar(section) = target {
-            if self.subpage == Some(Subpage::WeatherLocation) {
-                self.weather.cancel_search();
-            }
             if self.section != section || self.subpage.is_some() {
                 self.scroll = 0.;
             }
@@ -1034,7 +969,7 @@ impl State {
                     })
                     .unwrap_or(0),
             ),
-            WIDGETS_SECTION => Target::Widget(4),
+            WIDGETS_SECTION => Target::Widget(5),
             SYSTEM_SECTION if self.available_update.is_some() => Target::InstallUpdate,
             SYSTEM_SECTION => Target::Setting(3),
             _ => Target::Setting(0),
@@ -1042,21 +977,10 @@ impl State {
     }
 
     fn close_subpage(&mut self) {
-        if self.subpage == Some(Subpage::WeatherLocation) {
-            self.weather.cancel_search();
-        }
         self.panel_started = None;
         self.pointer = false;
         self.focus = match self.subpage.take() {
             Some(Subpage::AppNames) => Target::Setting(0),
-            Some(Subpage::Greeting) => Target::Widget(0),
-            Some(Subpage::Date) => Target::Widget(4),
-            Some(Subpage::DateFormat) => {
-                self.subpage = Some(Subpage::Date);
-                Target::DateFormat
-            }
-            Some(Subpage::Weather) => Target::Widget(1),
-            Some(Subpage::Shortcuts) => Target::Widget(2),
             Some(Subpage::Inputs) => Target::Widget(3),
             Some(Subpage::Clock) => Target::Setting(1),
             Some(Subpage::ClockFormat) => {
@@ -1070,14 +994,6 @@ impl State {
             Some(Subpage::Input(id)) => {
                 self.subpage = Some(Subpage::Inputs);
                 Target::InputMode(id)
-            }
-            Some(Subpage::WeatherLocation) => {
-                self.subpage = Some(Subpage::Weather);
-                Target::WeatherLocation
-            }
-            Some(Subpage::Temperature) => {
-                self.subpage = Some(Subpage::Weather);
-                Target::WeatherTemperature
             }
             Some(Subpage::Language) => Target::Setting(4),
             Some(Subpage::TextRendering) => Target::Setting(7),
@@ -1097,10 +1013,7 @@ impl State {
             // The TV keyboard owns its arrows until Done/Back dismisses it.
             return vec![];
         }
-        if matches!(
-            self.overlay,
-            Some(Overlay::WallpaperUpload | Overlay::TileEditor)
-        ) {
+        if matches!(self.overlay, Some(Overlay::WallpaperUpload)) {
             return vec![];
         }
         if let Some(id) = self.moving.clone() {
@@ -1212,13 +1125,7 @@ impl State {
                 return vec![];
             }
             let setting_rows: Option<&[Target]> = match self.subpage {
-                Some(Subpage::Greeting) => Some(&[
-                    Target::GreetingToggle,
-                    Target::GreetingName,
-                    Target::GreetingNameClear,
-                ]),
                 Some(Subpage::AppNames) => Some(&[Target::AppNamesHome, Target::AppNamesApps]),
-                Some(Subpage::Date) => Some(&[Target::DateToggle, Target::DateFormat]),
                 Some(Subpage::Clock) => Some(&[Target::ClockFormat, Target::ClockTimeFormat]),
                 _ => None,
             };
@@ -1239,13 +1146,7 @@ impl State {
                         self.focus(rows[index + 1].clone(), controls)
                     }
                     Direction::Right
-                        if matches!(
-                            self.focus,
-                            Target::GreetingName
-                                | Target::ClockFormat
-                                | Target::ClockTimeFormat
-                                | Target::DateFormat
-                        ) =>
+                        if matches!(self.focus, Target::ClockFormat | Target::ClockTimeFormat) =>
                     {
                         return self.activate();
                     }
@@ -1255,14 +1156,8 @@ impl State {
             }
             if let Target::Choice(index) = self.focus {
                 let count = match self.subpage {
-                    Some(
-                        Subpage::ClockFormat
-                        | Subpage::TimeFormat
-                        | Subpage::Temperature
-                        | Subpage::TextRendering,
-                    ) => 2,
+                    Some(Subpage::ClockFormat | Subpage::TimeFormat | Subpage::TextRendering) => 2,
                     Some(Subpage::Language) => Language::ALL.len(),
-                    Some(Subpage::DateFormat) => crate::model::DateFormat::ALL.len(),
                     _ => 3,
                 };
                 match direction {
@@ -1332,16 +1227,8 @@ impl State {
                 }
                 return vec![];
             }
-            if (matches!(
-                self.focus,
-                Target::TileEditor
-                    | Target::Tile(_)
-                    | Target::InputMode(_)
-                    | Target::WeatherToggle
-                    | Target::WeatherLocation
-                    | Target::WeatherTemperature
-                    | Target::Widget(_)
-            ) || (self.focus == Target::Setting(3) && self.subpage == Some(Subpage::Inputs)))
+            if (matches!(self.focus, Target::InputMode(_) | Target::Widget(_))
+                || (self.focus == Target::Setting(3) && self.subpage == Some(Subpage::Inputs)))
                 && matches!(direction, Direction::Left)
             {
                 self.close_subpage();
@@ -1349,18 +1236,12 @@ impl State {
             }
             if matches!(
                 self.focus,
-                Target::Setting(0 | 1 | 4 | 7)
-                    | Target::Widget(_)
-                    | Target::InputMode(_)
-                    | Target::WeatherLocation
-                    | Target::WeatherTemperature
+                Target::Setting(0 | 1 | 4 | 7) | Target::Widget(_) | Target::InputMode(_)
             ) && matches!(direction, Direction::Right)
             {
                 return self.activate();
             }
-            if matches!(self.focus, Target::Setting(_) | Target::WeatherToggle)
-                && matches!(direction, Direction::Right)
-            {
+            if matches!(self.focus, Target::Setting(_)) && matches!(direction, Direction::Right) {
                 return vec![];
             }
             if let Target::InputMode(id) = &self.focus
@@ -1376,68 +1257,6 @@ impl State {
             }
             if self.focus == Target::Setting(0) && matches!(direction, Direction::Up) {
                 self.focus(Target::Nav(2), controls);
-                return vec![];
-            }
-            if self.focus == Target::WeatherToggle && matches!(direction, Direction::Up) {
-                self.focus(Target::Nav(2), controls);
-                return vec![];
-            }
-            if matches!(
-                self.focus,
-                Target::WeatherQuery | Target::WeatherSearch | Target::WeatherClear
-            ) {
-                match direction {
-                    Direction::Left => {
-                        self.close_subpage();
-                        return vec![];
-                    }
-                    Direction::Up => {
-                        self.focus(
-                            if self.preferences.weather_location.is_some()
-                                && self.focus != Target::WeatherClear
-                            {
-                                Target::WeatherClear
-                            } else {
-                                Target::Nav(2)
-                            },
-                            controls,
-                        );
-                        return vec![];
-                    }
-                    Direction::Down => {
-                        let target = if self.focus == Target::WeatherClear {
-                            Some(Target::WeatherQuery)
-                        } else if !self.weather.results.is_empty() {
-                            Some(Target::WeatherResult(0))
-                        } else if self.focus == Target::WeatherQuery {
-                            Some(Target::WeatherSearch)
-                        } else {
-                            None
-                        };
-                        if let Some(target) = target {
-                            self.focus(target, controls);
-                        }
-                        return vec![];
-                    }
-                    _ => {}
-                }
-            }
-            if let Target::WeatherResult(index) = self.focus {
-                match direction {
-                    Direction::Left => self.close_subpage(),
-                    Direction::Up => self.focus(
-                        if index == 0 {
-                            Target::WeatherQuery
-                        } else {
-                            Target::WeatherResult(index - 1)
-                        },
-                        controls,
-                    ),
-                    Direction::Down if index + 1 < self.weather.results.len() => {
-                        self.focus(Target::WeatherResult(index + 1), controls)
-                    }
-                    _ => {}
-                }
                 return vec![];
             }
             if self.focus == Target::Search {
@@ -1667,17 +1486,6 @@ impl State {
                 }
                 self.dirty = true;
             }
-        } else if let Target::Tile(id) = &self.focus {
-            if self.preferences.custom_tile(id).is_none() {
-                return;
-            }
-            self.overlay = Some(Overlay::Options {
-                id: id.clone(),
-                restore: self.focus.clone(),
-            });
-            self.focus = Target::TileTest(id.clone());
-            self.panel_started = (!self.preferences.reduced_motion).then(Instant::now);
-            self.dirty = true;
         } else if let Target::App(id) = &self.focus {
             self.overlay = Some(Overlay::Options {
                 id: id.clone(),
@@ -1757,27 +1565,6 @@ impl State {
 
     pub fn text(&mut self, text: &str) {
         if self.text_input_active() {
-            if self.keyboard_field == TextField::Location {
-                let mut query = self.weather.query.clone();
-                query.extend(
-                    text.chars()
-                        .filter(|c| !c.is_control())
-                        .take(120usize.saturating_sub(query.chars().count())),
-                );
-                self.weather.edit(query);
-                self.dirty = true;
-                return;
-            }
-            if self.keyboard_field == TextField::Name {
-                let name = &mut self.greeting_name_draft;
-                name.extend(
-                    text.chars()
-                        .filter(|c| !c.is_control())
-                        .take(40usize.saturating_sub(name.chars().count())),
-                );
-                self.dirty = true;
-                return;
-            }
             if self.keyboard_field == TextField::InputName {
                 let length = self.input_name.chars().count();
                 self.input_name.extend(
@@ -1800,13 +1587,7 @@ impl State {
 
     pub fn delete(&mut self) {
         if self.text_input_active() {
-            if self.keyboard_field == TextField::Location {
-                let mut query = self.weather.query.clone();
-                query.pop();
-                self.weather.edit(query);
-            } else if self.keyboard_field == TextField::Name {
-                self.greeting_name_draft.pop();
-            } else if self.keyboard_field == TextField::InputName {
+            if self.keyboard_field == TextField::InputName {
                 self.input_name.pop();
             } else {
                 self.query.pop();
@@ -1835,16 +1616,6 @@ impl State {
     }
 
     fn commit_text_input(&mut self) -> Vec<Effect> {
-        if self.keyboard_field == TextField::Name {
-            let name = std::mem::take(&mut self.greeting_name_draft);
-            let name = name.trim();
-            // Empty dismissal preserves the saved value; Clear name is explicit.
-            if !name.is_empty() && self.preferences.greeting_name != name {
-                self.preferences.greeting_name = name.into();
-                return vec![Effect::Save];
-            }
-            return vec![];
-        }
         self.commit_input_name()
     }
 
@@ -1865,63 +1636,6 @@ impl State {
         }
     }
 
-    /// Applies the tile list edited on a phone or computer. New tiles join
-    /// the end of the Home favorites and removed ones leave favorites and hidden apps.
-    pub fn replace_tiles(&mut self, tiles: Vec<CustomTile>) -> Vec<Effect> {
-        let removed: Vec<_> = self
-            .preferences
-            .custom_tiles
-            .iter()
-            .filter(|old| !tiles.iter().any(|tile| tile.id == old.id))
-            .map(|old| old.id.clone())
-            .collect();
-        for id in &removed {
-            self.preferences.remove_tile(id);
-        }
-        let added: Vec<_> = tiles
-            .iter()
-            .filter(|tile| self.preferences.custom_tile(&tile.id).is_none())
-            .map(|tile| tile.id.clone())
-            .collect();
-        self.preferences.custom_tiles = tiles;
-        self.preferences.sanitize();
-        self.sync_custom_tiles();
-        if let Target::Tile(id) | Target::TileRemove(id) | Target::TileTest(id) = &self.focus
-            && self.preferences.custom_tile(id).is_none()
-        {
-            if matches!(
-                &self.overlay,
-                Some(Overlay::Options {
-                    restore: Target::Tile(_),
-                    ..
-                })
-            ) {
-                self.overlay = None;
-                self.panel_started = None;
-            }
-            self.focus = Target::TileEditor;
-        }
-        if !added.is_empty() {
-            let mut favorites = self.preferences.favorites(&self.inventory.apps);
-            for id in added {
-                if self.preferences.custom_tile(&id).is_some() && !favorites.contains(&id) {
-                    favorites.push(id);
-                }
-            }
-            self.preferences.favorites = Some(favorites);
-        }
-        vec![Effect::Save]
-    }
-
-    fn send_tile(&mut self, tile: CustomTile) -> Vec<Effect> {
-        self.notify(
-            self.preferences
-                .language
-                .format("tileSending", &[("tile", &tile.title)]),
-        );
-        vec![Effect::FireWebhook(tile)]
-    }
-
     pub fn delete_surrounding_text(&mut self, offset: i32, length: i32) {
         if !self.text_input_active() || length <= 0 {
             return;
@@ -1939,11 +1653,7 @@ impl State {
             end += 1;
         }
         query.replace_range(start..end, "");
-        if self.keyboard_field == TextField::Location {
-            self.weather.edit(query);
-        } else if self.keyboard_field == TextField::Name {
-            self.greeting_name_draft = query;
-        } else if self.keyboard_field == TextField::InputName {
+        if self.keyboard_field == TextField::InputName {
             self.input_name = query;
         } else {
             self.query = query;
@@ -1954,18 +1664,12 @@ impl State {
 
     pub fn editing_text(&self) -> &str {
         match self.keyboard_field {
-            TextField::Location => &self.weather.query,
-            TextField::Name => &self.greeting_name_draft,
             TextField::InputName => &self.input_name,
             TextField::Apps => &self.query,
         }
     }
     pub fn open_keyboard(&mut self, field: TextField) {
         self.keyboard_field = field;
-        if field == TextField::Name {
-            // SDL-webOS cannot pre-fill the system keyboard's text model.
-            self.greeting_name_draft.clear();
-        }
         if field == TextField::InputName {
             // The TV keyboard starts empty, so a new name replaces the old one.
             self.input_name.clear();
@@ -1977,8 +1681,6 @@ impl State {
         )) {
             self.overlay = Some(Overlay::SystemKeyboard);
             self.focus = match field {
-                TextField::Location => Target::WeatherQuery,
-                TextField::Name => Target::GreetingName,
                 TextField::InputName => Target::InputRename,
                 TextField::Apps => Target::Search,
             };
@@ -1993,20 +1695,8 @@ impl State {
         }
         self.dirty = true;
     }
-    fn open_location(&mut self) {
-        self.weather.edit(String::new());
-        self.subpage = Some(Subpage::WeatherLocation);
-        self.focus = Target::WeatherQuery;
-        self.scroll = 0.;
-        if !self.preferences.reduced_motion {
-            self.panel_started = Some(Instant::now());
-        }
-        self.dirty = true;
-    }
     fn keyboard_return(&self) -> Target {
         match self.keyboard_field {
-            TextField::Location => Target::WeatherSearch,
-            TextField::Name => Target::GreetingName,
             TextField::InputName => Target::InputRename,
             TextField::Apps => Target::Search,
         }
@@ -2028,12 +1718,6 @@ impl State {
             return vec![];
         }
         self.dirty = true;
-        if self.page != Page::Apps
-            && let Target::App(id) = &self.focus
-            && let Some(tile) = self.preferences.custom_tile(id).cloned()
-        {
-            return self.send_tile(tile);
-        }
         match self.focus.clone() {
             Target::Nav(index) => self.open(index),
             Target::Browse => self.open(1),
@@ -2043,12 +1727,6 @@ impl State {
             Target::UploadWallpaper => {
                 self.wallpaper_upload = None;
                 self.overlay = Some(Overlay::WallpaperUpload);
-                self.focus = Target::CloseDialog;
-                self.pressed = None;
-            }
-            Target::TileEditor => {
-                self.tile_editor = None;
-                self.overlay = Some(Overlay::TileEditor);
                 self.focus = Target::CloseDialog;
                 self.pressed = None;
             }
@@ -2063,9 +1741,6 @@ impl State {
                 {
                     let id = id.clone();
                     self.back();
-                    if let Some(tile) = self.preferences.custom_tile(&id).cloned() {
-                        return self.send_tile(tile);
-                    }
                     return vec![Effect::Launch(id)];
                 }
             }
@@ -2085,50 +1760,6 @@ impl State {
             }
             Target::Search => {
                 self.open_keyboard(TextField::Apps);
-            }
-            Target::WeatherConfigure => {
-                self.open(2);
-                self.section = WIDGETS_SECTION;
-                self.open_location();
-                self.open_keyboard(TextField::Location);
-            }
-            Target::WeatherToggle => {
-                self.preferences.show_weather = !self.preferences.show_weather;
-                self.weather.invalidate_forecast();
-                return vec![Effect::Save];
-            }
-            Target::WeatherLocation => self.open_location(),
-            Target::WeatherTemperature => {
-                self.subpage = Some(Subpage::Temperature);
-                self.focus = Target::Choice(usize::from(
-                    self.preferences.temperature_unit == Unit::Fahrenheit,
-                ));
-                if !self.preferences.reduced_motion {
-                    self.panel_started = Some(Instant::now());
-                }
-            }
-            Target::WeatherQuery => self.open_keyboard(TextField::Location),
-            Target::GreetingToggle => {
-                self.preferences.show_greeting = !self.preferences.show_greeting;
-                return vec![Effect::Save];
-            }
-            Target::DateToggle => {
-                self.preferences.show_date = !self.preferences.show_date;
-                return vec![Effect::Save];
-            }
-            Target::DateFormat => {
-                self.subpage = Some(Subpage::DateFormat);
-                self.focus = Target::Choice(self.preferences.date_format.index());
-                self.scroll = 0.;
-                if !self.preferences.reduced_motion {
-                    self.panel_started = Some(Instant::now());
-                }
-            }
-            Target::GreetingName => self.open_keyboard(TextField::Name),
-            Target::GreetingNameClear => {
-                self.preferences.greeting_name.clear();
-                self.focus = Target::GreetingName;
-                return vec![Effect::Save];
             }
             Target::AppNamesHome => {
                 self.preferences.show_home_names = !self.preferences.show_home_names;
@@ -2172,10 +1803,6 @@ impl State {
             }
             Target::Widget(index) => {
                 let (subpage, focus) = match index {
-                    0 => (Subpage::Greeting, Target::GreetingToggle),
-                    1 => (Subpage::Weather, Target::WeatherToggle),
-                    2 => (Subpage::Shortcuts, Target::TileEditor),
-                    4 => (Subpage::Date, Target::DateToggle),
                     3 => (
                         Subpage::Inputs,
                         self.inventory
@@ -2206,59 +1833,11 @@ impl State {
             Target::CheckUpdates => {
                 // This fork has no update feed yet.
             }
-            Target::Tile(_) => self.options(),
-            Target::TileTest(id) => {
-                if matches!(&self.overlay, Some(Overlay::Options { id: current, restore: Target::Tile(_), .. }) if current == &id)
-                    && let Some(tile) = self.preferences.custom_tile(&id).cloned()
-                {
-                    return self.send_tile(tile);
-                }
-            }
-            Target::TileRemove(id) => {
-                if matches!(&self.overlay, Some(Overlay::Options { id: current, restore: Target::Tile(_), .. }) if current == &id)
-                    && let Some(tile) = self.preferences.remove_tile(&id)
-                {
-                    self.overlay = None;
-                    self.notify(
-                        self.preferences
-                            .language
-                            .format("tileRemoved", &[("tile", &tile.title)]),
-                    );
-                    self.subpage = Some(Subpage::Shortcuts);
-                    self.panel_started = None;
-                    self.scroll = 0.;
-                    self.sync_custom_tiles();
-                    self.focus = Target::TileEditor;
-                    return vec![Effect::Save];
-                }
-            }
             Target::InputNameReset => {
                 if let Some(Subpage::Input(id)) = &self.subpage
                     && self.preferences.input_names.remove(id).is_some()
                 {
                     self.focus = Target::InputRename;
-                    return vec![Effect::Save];
-                }
-            }
-            Target::WeatherSearch => {
-                return self
-                    .weather
-                    .search(self.preferences.language)
-                    .map(|command| vec![Effect::Weather(command)])
-                    .unwrap_or_default();
-            }
-            Target::WeatherClear => {
-                self.preferences.weather_location = None;
-                self.weather.remove_location();
-                self.focus = Target::WeatherSearch;
-                return vec![Effect::Save, Effect::Weather(weather::Command::ClearCache)];
-            }
-            Target::WeatherResult(index) => {
-                if let Some(place) = self.weather.results.get(index).cloned() {
-                    self.preferences.weather_location = Some(place);
-                    self.weather.invalidate_forecast();
-                    self.weather.cancel_search();
-                    self.focus = Target::WeatherSearch;
                     return vec![Effect::Save];
                 }
             }
@@ -2381,26 +1960,15 @@ impl State {
                 match self.subpage.clone() {
                     Some(Subpage::ClockFormat) => self.preferences.hour_24 = index == 1,
                     Some(Subpage::TimeFormat) => self.preferences.show_seconds = index == 1,
-                    Some(Subpage::DateFormat) => {
-                        self.preferences.date_format = crate::model::DateFormat::ALL[index.min(3)];
-                    }
                     Some(Subpage::Input(id)) => {
                         self.preferences.input_modes.insert(
                             id,
                             [InputMode::On, InputMode::Off, InputMode::Auto][index.min(2)],
                         );
                     }
-                    Some(Subpage::Temperature) => {
-                        self.preferences.temperature_unit = if index == 1 {
-                            Unit::Fahrenheit
-                        } else {
-                            Unit::Celsius
-                        }
-                    }
                     Some(Subpage::Language) => {
                         self.preferences.language =
                             Language::ALL[index.min(Language::ALL.len() - 1)];
-                        self.weather.cancel_search();
                     }
                     Some(Subpage::TextRendering) => {
                         let mode = TextRendering::ALL[index.min(TextRendering::ALL.len() - 1)];
@@ -2409,16 +1977,7 @@ impl State {
                             self.notify(self.preferences.language.t("textRenderingRestart"));
                         }
                     }
-                    Some(
-                        Subpage::WeatherLocation
-                        | Subpage::Greeting
-                        | Subpage::Date
-                        | Subpage::AppNames
-                        | Subpage::Clock
-                        | Subpage::Weather
-                        | Subpage::Shortcuts
-                        | Subpage::Inputs,
-                    ) => {
+                    Some(Subpage::AppNames | Subpage::Clock | Subpage::Inputs) => {
                         return vec![];
                     }
                     None => return vec![],
@@ -2541,8 +2100,6 @@ impl State {
                 "Space" => self.text(" "),
                 "Delete" => self.delete(),
                 "Clear" => match self.keyboard_field {
-                    TextField::Location => self.weather.edit(String::new()),
-                    TextField::Name => self.greeting_name_draft.clear(),
                     TextField::InputName => self.input_name.clear(),
                     TextField::Apps => self.query.clear(),
                 },
@@ -2581,12 +2138,6 @@ impl State {
             if matches!(overlay, Overlay::WallpaperUpload) {
                 self.wallpaper_upload = None;
                 self.focus = Target::UploadWallpaper;
-                self.pressed = None;
-                return vec![];
-            }
-            if matches!(overlay, Overlay::TileEditor) {
-                self.tile_editor = None;
-                self.focus = Target::TileEditor;
                 self.pressed = None;
                 return vec![];
             }

@@ -37,3 +37,10 @@ test('source preparation preserves paths and removes component syntax and redund
     /<\?xml/,
   );
 });
+
+test('the app icon is a plain H on dark grey, without the Luma mark', async () => {
+  const svg = await fs.readFile(new URL('../assets/app-icon.svg', import.meta.url), 'utf8');
+  assert.doesNotMatch(svg, /Gradient|M51 24h21/, 'the Luma mark is gone');
+  assert.match(svg, /<rect [^>]*fill="#1c1c1e"/);
+  assert.match(svg, /<path [^>]*d="M38 30h14v27h24V30h14v68H76V71H52v27H38Z"[^>]*fill="#f5f5f5"/);
+});

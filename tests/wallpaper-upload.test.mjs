@@ -43,6 +43,7 @@ test('upload page needs no name and retains its storage-path success view', asyn
     'utf8',
   );
   assert.doesNotMatch(html, /id="name"|success-name|Background name/);
+  assert.doesNotMatch(html, /luma-mark|<img/, 'no logo on the page');
   assert.match(html, /Your background was uploaded to/);
   assert.match(html, /id="success-path"/);
   assert.match(html, /Add another one/);

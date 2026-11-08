@@ -119,12 +119,20 @@ a `55UP751C0SF` on webOS 6.5.3; on other firmware check them first (see
 
 Undo: `"$APP/luma-helper" tune restore`, or disable the Home replacement (which lifts it first).
 
-## 7. "For You" row and Stremio (optional)
+## 7. Continue Watching and Stremio (optional)
 
-Turn on **For You** in Luma's settings. It only shows while the greeting, date and weather are
-off. A card opens the official Stremio app and shows the title to search for. Opening the title
-directly needs a Stremio build that accepts launch parameters installed as
-`cc.ncls.stremiocards`, which is a separate third-party project and is not distributed here.
+The **Continue Watching** row shows the titles in progress in your Stremio library. Sign in once:
+
+```sh
+scripts/stremio-login.sh TV_IP            # asks for your Stremio e-mail and password
+scripts/stremio-login.sh TV_IP --logout   # remove the saved key
+```
+
+The password goes to `api.strem.io` only; the TV keeps just the session key, readable by Luma.
+Switch the row off in **Settings → Widgets → Continue Watching**. A card opens the official Stremio
+app and shows the title to search for. Opening the title directly needs a Stremio build that
+accepts launch parameters installed as `cc.ncls.stremiocards`, which is a separate third-party
+project and is not distributed here.
 
 ## 8. Undo everything
 

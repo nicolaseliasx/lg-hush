@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import http from 'node:http';
 import { spawn } from 'node:child_process';
 import messages from '../assets/messages.json' with { type: 'json' };
 
@@ -11,36 +10,6 @@ await fs.mkdir(out, { recursive: true });
 const temporary = await fs.mkdtemp(path.join(out, 'translations-smoke-'));
 const preferences = path.join(temporary, 'preferences.json');
 const binary = path.resolve(root, process.env.CARGO_TARGET_DIR ?? 'target', 'debug/luma');
-const requests = [];
-const places = {
-  en: { name: 'Vienna', region: 'Vienna', country: 'Austria' },
-  de: { name: 'Wien', region: 'Wien', country: 'Österreich' },
-  zh: { name: '维也纳', region: '维也纳', country: '奥地利' },
-  pt: { name: 'Viena', region: 'Viena', country: 'Áustria' },
-  vi: { name: 'Viên', region: 'Viên', country: 'Áo' },
-};
-const server = http.createServer((request, response) => {
-  const url = new URL(request.url, 'http://127.0.0.1');
-  requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams) });
-  response.setHeader('Content-Type', 'application/json');
-  if (url.pathname === '/v1/search') {
-    const place = places[url.searchParams.get('language')];
-    assert.ok(place, 'Geocoding must use a supported UI language');
-    response.end(
-      JSON.stringify({
-        results: [{ ...place, admin1: place.region, latitude: 48.2085, longitude: 16.3721 }],
-      }),
-    );
-  } else if (url.pathname === '/v1/forecast') {
-    assert.equal(url.searchParams.get('temperature_unit'), 'celsius');
-    response.end(JSON.stringify({ current: { temperature_2m: 14.2, weather_code: 2, is_day: 1 } }));
-  } else {
-    response.writeHead(404);
-    response.end('{}');
-  }
-});
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const origin = `http://127.0.0.1:${server.address().port}`;
 async function run(command, args) {
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: root, stdio: 'inherit' });
@@ -65,8 +34,6 @@ async function scenario(name, script, extra = []) {
   await run(binary, [
     '--preferences',
     preferences,
-    '--weather-test-server',
-    origin,
     '--script',
     script,
     '--frames',
@@ -101,9 +68,8 @@ function contains(state, key, language) {
   assert.ok(state.ui_text.includes(messages[key][language]), `Missing rendered ${key}/${language}`);
 }
 const picker = 'settings,down,enter,down,down,enter';
-const weatherPage = 'settings,down,down,down,enter,down,down,enter';
-const inputsPage = 'settings,down,down,down,enter,down,down,down,down,enter';
-const location = `${weatherPage},down,enter`;
+// Widgets lists Continue Watching, then Inputs.
+const inputsPage = 'settings,down,down,down,enter,down,enter';
 try {
   if (process.env.LUMA_SMOKE_SKIP_BUILD !== '1')
     await run('cargo', ['build', '--locked', '--package', 'luma']);
@@ -113,12 +79,9 @@ try {
       language: 'en',
       show_home_names: true,
       reduced_motion: true,
-      show_greeting: true,
-      show_weather: true,
       background: 'dunes',
       deleted_backgrounds: ['onyx'],
       wallpaper_gradient: true,
-      show_date: true,
     }),
   );
   const languages = await scenario('picker-en', picker);
@@ -128,15 +91,7 @@ try {
 
   const german = await scenario('de-home', `${picker},up,enter,home,down`);
   assert.equal(german.preferences.language, 'de');
-  for (const key of [
-    'home',
-    'settings',
-    'favorites',
-    'inputsHeading',
-    'evening',
-    'setWeatherLocation',
-  ])
-    contains(german, key, 'de');
+  for (const key of ['home', 'settings', 'favorites', 'inputsHeading']) contains(german, key, 'de');
   assert.ok(german.ui_text.includes('Netflix'), 'Installed app names stay intact');
   const persisted = await scenario('de-settings', 'settings,down');
   assert.equal(persisted.preferences.language, 'de');
@@ -147,52 +102,18 @@ try {
     `${picker},${Array(11).fill('down').join(',')},enter,home,down`,
   );
   assert.equal(chinese.preferences.language, 'zh');
-  for (const key of [
-    'home',
-    'apps',
-    'settings',
-    'favorites',
-    'inputsHeading',
-    'evening',
-    'setWeatherLocation',
-  ])
+  for (const key of ['home', 'apps', 'settings', 'favorites', 'inputsHeading'])
     contains(chinese, key, 'zh');
   assert.ok(chinese.ui_text.includes('Netflix'));
-  assert.ok(chinese.ui_text.includes('10月21日星期三'));
   const chineseSettings = await scenario('zh-settings', 'settings,down');
   contains(chineseSettings, 'language', 'zh');
   contains(chineseSettings, 'appNames', 'zh');
 
-  const selected = await scenario(
-    'zh-weather',
-    `${location},type:Vienna,back,enter,await-search,down,enter,home,await-weather`,
-  );
-  assert.equal(selected.preferences.weather_location.name, '维也纳');
-  contains(selected, 'partlyCloudy', 'zh');
-  assert.equal(requests.find((request) => request.path === '/v1/search').query.language, 'zh');
-  const forecasts = requests.filter((request) => request.path === '/v1/forecast').length;
   const changed = await scenario(
-    'de-weather',
-    `${picker},${Array(11).fill('up').join(',')},enter,home,await-weather`,
+    'de-again',
+    `${picker},${Array(11).fill('up').join(',')},enter,home`,
   );
   assert.equal(changed.preferences.language, 'de');
-  contains(changed, 'partlyCloudy', 'de');
-  assert.ok(changed.ui_text.includes('维也纳'), 'The saved city name is data, not a UI label');
-  assert.equal(
-    requests.filter((request) => request.path === '/v1/forecast').length,
-    forecasts,
-    'Language changes reuse weather cache',
-  );
-  const germanPlace = await scenario(
-    'de-search',
-    `${location},type:Wien,back,enter,await-search,down,enter`,
-  );
-  assert.equal(germanPlace.preferences.weather_location.name, 'Wien');
-  assert.equal(
-    requests.filter((request) => request.path === '/v1/search').at(-1).query.language,
-    'de',
-  );
-
   const germanDialog = await scenario('de-dialog', 'apps,down,menu');
   contains(germanDialog, 'removeFavorite', 'de');
   contains(germanDialog, 'hideApp', 'de');
@@ -217,13 +138,6 @@ try {
   for (const key of ['useBackground', 'deleteBackground']) contains(backgroundOptions, key, 'zh');
   const keyboard = await scenario('zh-keyboard', 'apps,type:Netflix');
   for (const key of ['findApp', 'space', 'delete', 'clear', 'done']) contains(keyboard, key, 'zh');
-  const weatherSettings = await scenario('zh-weather-settings', weatherPage);
-  for (const key of ['widgets', 'showWidget', 'location', 'temperature'])
-    contains(weatherSettings, key, 'zh');
-  assert.ok(
-    !weatherSettings.ui_text.some((label) => label.includes('Open-Meteo')),
-    'Weather credit is not shown in the UI',
-  );
   await scenario('zh-4k', 'home,down', ['--capture-scale', '2']);
 
   await fs.writeFile(
@@ -232,12 +146,9 @@ try {
       language: 'en',
       show_home_names: true,
       reduced_motion: true,
-      show_greeting: true,
-      show_weather: true,
       background: 'dunes',
       deleted_backgrounds: ['onyx'],
       wallpaper_gradient: true,
-      show_date: true,
     }),
   );
   const portuguese = await scenario(
@@ -245,17 +156,8 @@ try {
     `${picker},${Array(6).fill('down').join(',')},enter,home,down`,
   );
   assert.equal(portuguese.preferences.language, 'pt');
-  for (const key of [
-    'home',
-    'apps',
-    'settings',
-    'favorites',
-    'inputsHeading',
-    'evening',
-    'setWeatherLocation',
-  ])
+  for (const key of ['home', 'apps', 'settings', 'favorites', 'inputsHeading'])
     contains(portuguese, key, 'pt');
-  assert.ok(portuguese.ui_text.includes('QUARTA-FEIRA, 21 DE OUTUBRO'));
   assert.ok(
     portuguese.ui_text.includes('Netflix'),
     'Installed app names stay intact in Portuguese',
@@ -280,32 +182,15 @@ try {
   for (const key of ['stateOn', 'stateOff', 'stateAuto', 'inputWhenConnected'])
     contains(portugueseInputs, key, 'pt');
 
-  const portugueseWeather = await scenario(
-    'pt-weather',
-    `${location},type:Viena,back,enter,await-search,down,enter,home,await-weather`,
-  );
-  assert.equal(portugueseWeather.preferences.language, 'pt');
-  assert.equal(portugueseWeather.preferences.weather_location.name, 'Viena');
-  assert.equal(portugueseWeather.preferences.weather_location.country, 'Áustria');
-  contains(portugueseWeather, 'partlyCloudy', 'pt');
-  assert.equal(
-    requests.filter((request) => request.path === '/v1/search').at(-1).query.language,
-    'pt',
-    'Geocoding must use the Portuguese locale',
-  );
-
   await fs.writeFile(
     preferences,
     JSON.stringify({
       language: 'en',
       show_home_names: true,
       reduced_motion: true,
-      show_greeting: true,
-      show_weather: true,
       background: 'dunes',
       deleted_backgrounds: ['onyx'],
       wallpaper_gradient: true,
-      show_date: true,
     }),
   );
   const vietnamesePicker = `${picker},${Array(8).fill('down').join(',')}`;
@@ -319,17 +204,8 @@ try {
   assert.ok(chineseFocused.ui_text.includes('简体中文'));
   const vietnamese = await scenario('vi-home', `${vietnamesePicker},enter,home,down`);
   assert.equal(vietnamese.preferences.language, 'vi');
-  for (const key of [
-    'home',
-    'apps',
-    'settings',
-    'favorites',
-    'inputsHeading',
-    'evening',
-    'setWeatherLocation',
-  ])
+  for (const key of ['home', 'apps', 'settings', 'favorites', 'inputsHeading'])
     contains(vietnamese, key, 'vi');
-  assert.ok(vietnamese.ui_text.includes('THỨ TƯ, 21 THÁNG 10'));
   assert.ok(vietnamese.ui_text.includes('Netflix'), 'Installed app names stay intact');
   assert.equal(JSON.parse(await fs.readFile(preferences, 'utf8')).language, 'vi');
 
@@ -356,16 +232,6 @@ try {
   for (const key of ['findApp', 'space', 'delete', 'clear', 'done'])
     contains(vietnameseKeyboard, key, 'vi');
 
-  const vietnameseWeather = await scenario(
-    'vi-weather',
-    `${location},type:Viên,back,enter,await-search,down,enter,home,await-weather`,
-  );
-  assert.equal(vietnameseWeather.preferences.weather_location.name, 'Viên');
-  assert.equal(vietnameseWeather.preferences.weather_location.country, 'Áo');
-  contains(vietnameseWeather, 'partlyCloudy', 'vi');
-  const vietnameseSearch = requests.filter((request) => request.path === '/v1/search').at(-1);
-  assert.equal(vietnameseSearch.query.language, 'vi', 'Geocoding must use the Vietnamese locale');
-  assert.equal(vietnameseSearch.query.name, 'Viên', 'Accented queries must round-trip unchanged');
   await scenario('vi-4k', 'home,down', ['--capture-scale', '2']);
   await fs.writeFile(
     preferences,
@@ -373,12 +239,9 @@ try {
       language: 'en',
       show_home_names: true,
       reduced_motion: true,
-      show_greeting: true,
-      show_weather: true,
       background: 'dunes',
       deleted_backgrounds: ['onyx'],
       wallpaper_gradient: true,
-      show_date: true,
     }),
   );
   const traditionalPicker = `${picker},${Array(11).fill('down').join(',')}`;
@@ -388,36 +251,16 @@ try {
   assert.ok(traditionalFocused.ui_text.includes('繁體中文'));
   const traditional = await scenario('zh-tw-home', `${traditionalPicker},enter,home,down`);
   assert.equal(traditional.preferences.language, 'zh-tw');
-  for (const key of [
-    'home',
-    'apps',
-    'settings',
-    'favorites',
-    'inputsHeading',
-    'evening',
-    'setWeatherLocation',
-  ])
+  for (const key of ['home', 'apps', 'settings', 'favorites', 'inputsHeading'])
     contains(traditional, key, 'zh-tw');
-  assert.ok(traditional.ui_text.includes('10月21日星期三'));
   assert.ok(traditional.ui_text.includes('Netflix'));
   const traditionalSettings = await scenario('zh-tw-settings', 'settings,down');
   assert.equal(traditionalSettings.preferences.language, 'zh-tw');
   for (const key of ['language', 'appNames', 'clock']) contains(traditionalSettings, key, 'zh-tw');
-  const traditionalWeather = await scenario(
-    'zh-tw-weather',
-    `${location},type:Vienna,back,enter,await-search,down,enter,home,await-weather`,
-  );
-  contains(traditionalWeather, 'partlyCloudy', 'zh-tw');
-  assert.equal(
-    requests.filter((request) => request.path === '/v1/search').at(-1).query.language,
-    'zh',
-  );
   await scenario('zh-tw-4k', 'home,down', ['--capture-scale', '2']);
   console.log(
-    'Native translation checks passed: saved language selection, shared labels, Portuguese and Vietnamese locale formatting and accented glyphs, Vietnamese deletion/cancel UI, localized geocoding/weather, unchanged app names, Chinese glyphs and 4K rendering.',
+    'Native translation checks passed: saved language selection, shared labels, Portuguese and Vietnamese locale formatting and accented glyphs, Vietnamese deletion/cancel UI, unchanged app names, Chinese glyphs and 4K rendering.',
   );
 } finally {
-  server.closeAllConnections();
-  await new Promise((resolve) => server.close(resolve));
   await fs.rm(temporary, { recursive: true, force: true });
 }

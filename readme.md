@@ -13,15 +13,17 @@ default look and a TV helper on top. See [Credits](#credits).
 
 ## What it is
 
-- **Home as a black launcher.** Fresh installs default to a pure black background with no weather,
-  greeting or date. Apps, inputs and recent apps behave like upstream Luma.
+- **Home as a black launcher.** A pure black background, no greeting, date, weather or webhook
+  shortcuts, and the favorites on a dock in a slightly lighter black, like Apple TV's. Apps, inputs
+  and recent apps behave like upstream Luma. The app icon is a plain "H", without the Luma logo.
 - **`luma-helper`**, a small root-only helper packaged with the app:
   - `diagnose` reads what your TV exposes and whether the Home replacement can be enabled. It changes nothing.
   - `tune` is the debloat: it switches off LG preloads and some services and blocks a few LG ad
     hosts, all in RAM and reapplied at boot. `tune restore` puts LG's own settings back.
 - **Faster cold boot and a Home without the cursor** when returning from an app.
-- **"For You" row** (optional): movie and series posters from the public Stremio catalogue
-  (Cinemeta) between the tabs and Favorites. Needs Stremio on the TV to open a title.
+- **Continue Watching** (optional): the titles in progress in your Stremio library, with episode,
+  time left and a progress bar, between the tabs and Favorites. Sign in once with
+  `scripts/stremio-login.sh`. Needs Stremio on the TV to open a title.
 - **Power off instead of the LG screensaver** when Luma is the Home.
 - A fork identity: app id `cc.ncls.luma`, update checks disabled (this project has no update feed yet).
 
@@ -30,9 +32,9 @@ your own TV.
 
 ## Tested on
 
-| TV               | Firmware    | Result                                                                  |
-| ---------------- | ----------- | ----------------------------------------------------------------------- |
-| LG `55UP751C0SF` | webOS 6.5.3 | Home replacement, debloat, boot hook, For You: used daily by the author |
+| TV               | Firmware    | Result                                                                            |
+| ---------------- | ----------- | --------------------------------------------------------------------------------- |
+| LG `55UP751C0SF` | webOS 6.5.3 | Home replacement, debloat, boot hook, Continue Watching: used daily by the author |
 
 Anything else is untested. The upstream project reports Home replacement on webOS 5, 6, 25 and 26;
 see the [upstream README](docs/luma-upstream.md) for its device table. Run `luma-helper diagnose`
@@ -63,7 +65,7 @@ A reboot without the boot hook gives LG's Home back. Details and the exact lists
 
 ## Stremio Cards (not included)
 
-The "For You" row can open a title directly if a second Stremio build that accepts launch
+The Continue Watching row can open a title directly if a second Stremio build that accepts launch
 parameters is installed as `cc.ncls.stremiocards`. That build is a third-party project without a
 licence, so it is **not** part of this repository. Without it, a card opens the official Stremio app
 and shows the title to search for.

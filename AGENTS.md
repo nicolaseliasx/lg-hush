@@ -8,7 +8,7 @@ below are upstream's technical context and still apply; this block lists what di
 - Package `lg-hush` (changesets use this name); app id `cc.ncls.luma` and executable `luma` are
   unchanged on purpose: the TV's Home hook and the installed integration depend on them. Do not
   rename them without a migration.
-- Fork-only code: `tv-helper/` (`luma-helper diagnose|tune`), `src/for_you*.rs` ("For You" row),
+- Fork-only code: `tv-helper/` (`luma-helper diagnose|tune`), `src/for_you*.rs` ("Continue Watching" row),
   `src/sleep.rs` (power off instead of the screensaver). Docs: `docs/install.md`, `docs/plans/`
   (Portuguese working notes and measurements). `docs/luma-upstream.md` is upstream's README.
 - `readme.md` must keep a versioned `cc.ncls.luma_X.Y.Z_arm.ipk` example: `tools/sync-version.mjs`
@@ -55,8 +55,8 @@ When only Markdown (`.md`) files are updated, do not run checks, including forma
 builds or tests.
 
 `pnpm check` does not execute tests. `pnpm test` is workspace unit tests; smoke scripts render
-desktop OpenGL and mock weather HTTP. Linux can use `xvfb-run -a pnpm test:smoke`. Tests must not
-contact real weather APIs or a TV. Respect any user instruction to use manual TV verification
+desktop OpenGL and mock the Stremio API and poster HTTP. Linux can use `xvfb-run -a pnpm test:smoke`.
+Tests must not contact real network services or a TV. Respect any user instruction to use manual TV verification
 instead of running automated tests. Builds/lint may still be run. Do not claim hardware behavior
 from desktop checks. Add a `pnpm changeset` file for release-worthy changes and leave version
 bumps to the automated Version Packages PR. Its `pnpm version:release` command synchronizes
@@ -99,10 +99,10 @@ atlas. Text AA prefers MSAA of intact outlines, with a narrow fringe fallback; k
 origin/baseline snapping and logical 1920×1080 layout. `--resolution 4k` is experimental, not a
 shipping-default claim. Profiles count presentations; ordinary `--frames` is event-loop iterations.
 
-Weather uses ureq/rustls, fixed Open-Meteo origins, bounded replies/timeouts, no proxy/redirects,
-separate workers/cache and generation IDs. Cache Celsius and convert units without replacing it.
-Only configured/enabled/visible Home starts forecasts. Shared translations are bundled locally.
-Match the current native design without on-screen weather credits; attribution remains in docs.
+Continue Watching uses ureq/rustls, fixed Stremio API and metahub origins, bounded
+replies/timeouts and no proxy; only the poster request follows redirects. Shared translations are
+bundled locally. Greeting, date, weather and webhook shortcuts were removed in lg-hush 4.0: do not
+reintroduce them without a request.
 
 ## Assets
 
@@ -115,7 +115,7 @@ changes. The Homebrew description must name every supported language; keep the
 variant cannot silently leave release-facing metadata outdated. Do not edit generated feed files.
 When adding or changing user-facing features, review `assets/homebrew-description.html` as well as
 the README/development docs so the Homebrew listing reflects major capabilities (including uploaded
-backgrounds and QR-managed webhook shortcuts), not just languages. Avoid claims for unverified TV
+backgrounds and Continue Watching), not just languages. Avoid claims for unverified TV
 behavior or features not yet implemented.
 
 SVG sources and fonts retain licenses in `assets/`. TV app artwork is resolved at runtime from

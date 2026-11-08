@@ -21,10 +21,9 @@ dist/                        Generated ARM IPK, checksum and Homebrew feed
 
 The launcher is rendered natively, without React, JSX, Vite or a browser runtime. Node/pnpm
 remain build/deployment tools for Sharp, the webOS CLI and formatting/linting. The installed app
-is the Rust executable `luma`, with app ID `cc.ncls.luma`. The companion pages in
-`assets/wallpaper-upload/` and `assets/tile-editor/` are plain HTML/CSS/JavaScript, embedded in the
-native executable and served temporarily to the owner's phone or computer; they do not render the
-TV interface.
+is the Rust executable `luma`, with app ID `cc.ncls.luma`. The companion page in
+`assets/wallpaper-upload/` is plain HTML/CSS/JavaScript, embedded in the native executable and
+served temporarily to the owner's phone or computer; it does not render the TV interface.
 
 ## Toolchain and commands
 
@@ -40,25 +39,25 @@ woff2, Python/fontTools, CMake and Git. Linux includes Mesa and Xvfb. Supported 
 Apple Silicon macOS and ARM64/x86-64 Linux. Without Nix, supply those tools and Rust 1.88+,
 including `armv7-unknown-linux-gnueabi` for TV builds. No browser installation is needed.
 
-| Command                   | Purpose                                                    |
-| ------------------------- | ---------------------------------------------------------- |
-| `pnpm dev [--options]`    | Run the desktop preview                                    |
-| `pnpm assets [--4k]`      | Prepare fonts, vector artwork and raster backgrounds       |
-| `pnpm screenshots`        | Capture native Home, Apps, General and Inputs into `docs/` |
-| `pnpm assets:vector`      | Recompile bundled SVG icon/logo meshes                     |
-| `pnpm assets:fonts`       | Restore checksum-pinned Noto font source if needed         |
-| `pnpm sdk`                | Download/relocate a pinned host webOS SDK                  |
-| `pnpm runtime`            | Prepare checksum-pinned SDL-webOS                          |
-| `pnpm build`              | Release ARM cross-build using `WEBOS_NDK`                  |
-| `pnpm run package`        | Assets, cross-build, IPK verification and Homebrew feed    |
-| `pnpm deploy --device tv` | Build/install/launch through an ares device profile        |
-| `pnpm check`              | Oxlint and workspace Clippy, without executing tests       |
-| `pnpm format:check`       | Rust and tooling/document formatting checks                |
-| `pnpm test`               | Release-tooling and Rust workspace unit tests              |
-| `pnpm test:icons`         | Mocked runtime icon reads and bundled vector checks        |
-| `pnpm test:smoke`         | Desktop rendering, mocked weather and localization checks  |
-| `pnpm changeset`          | Add a release note and requested version bump to a PR      |
-| `pnpm version:check`      | Check synchronized app release versions                    |
+| Command                   | Purpose                                                      |
+| ------------------------- | ------------------------------------------------------------ |
+| `pnpm dev [--options]`    | Run the desktop preview                                      |
+| `pnpm assets [--4k]`      | Prepare fonts, vector artwork and raster backgrounds         |
+| `pnpm screenshots`        | Capture native Home, Apps, General and Inputs into `docs/`   |
+| `pnpm assets:vector`      | Recompile bundled SVG icon/logo meshes                       |
+| `pnpm assets:fonts`       | Restore checksum-pinned Noto font source if needed           |
+| `pnpm sdk`                | Download/relocate a pinned host webOS SDK                    |
+| `pnpm runtime`            | Prepare checksum-pinned SDL-webOS                            |
+| `pnpm build`              | Release ARM cross-build using `WEBOS_NDK`                    |
+| `pnpm run package`        | Assets, cross-build, IPK verification and Homebrew feed      |
+| `pnpm deploy --device tv` | Build/install/launch through an ares device profile          |
+| `pnpm check`              | Oxlint and workspace Clippy, without executing tests         |
+| `pnpm format:check`       | Rust and tooling/document formatting checks                  |
+| `pnpm test`               | Release-tooling and Rust workspace unit tests                |
+| `pnpm test:icons`         | Mocked runtime icon reads and bundled vector checks          |
+| `pnpm test:smoke`         | Desktop rendering, Continue Watching and localization checks |
+| `pnpm changeset`          | Add a release note and requested version bump to a PR        |
+| `pnpm version:check`      | Check synchronized app release versions                      |
 
 The TV target is ARMv7 **soft-float calling convention**, `gnueabi`, not `gnueabihf`. Codegen
 uses the NDK's Cortex-A9/VFP baseline with NEON disabled for Rust code. Hardware floating point
@@ -80,7 +79,7 @@ backend. Avoid copying the whole SDK library directory or the TV's graphics driv
 `pnpm screenshots` generates `docs/home.png`, `docs/apps.png`, `docs/settings.png` and
 `docs/inputs.png`, linked by the README. It builds the desktop executable without the TV feature,
 uses isolated temporary preferences, sample inventory and a fixed date/time, and captures actual
-1920×1080 OpenGL framebuffers. Weather is unconfigured, so no real weather APIs are contacted.
+1920×1080 OpenGL framebuffers. No real network services are contacted.
 It does not execute the test suites. A desktop display is required; on headless Linux use
 `xvfb-run -a pnpm screenshots`. These images document the native design, not TV hardware behavior.
 
@@ -99,7 +98,7 @@ It does not execute the test suites. A desktop display is required; on headless 
 | F5                            | Refresh inventory                                             |
 
 Backspace deletes while editing. Native Back uses SDL's webOS-specific keycode. Back dismisses
-the keyboard first; Weather Location then returns to its parent Location row, HDMI choices to
+the keyboard first; HDMI choices then return to
 that HDMI row, and the Background gallery to Background in the sidebar. Back from the sidebar
 focuses the Settings tab, then returns Home. **System** in the sidebar groups **Refresh apps & inputs**
 and the vector power-icon **Quit app** action separately from General preferences.
@@ -141,29 +140,15 @@ General has an **App names** subpage with independent **Show on Home** and **Sho
 Home captions default to off and Apps captions default to on, stored independently in `show_home_names`
 and `show_app_names`. The legacy `show_names` preference does not override these defaults. Hidden
 captions do not reserve layout space.
-**Settings → Widgets** groups **Date**, **Greeting**, **Weather**, **Shortcuts**, and **Inputs** as separate subpages.
-Weather location and temperature choices return to Weather; Back from a widget returns to its row
-in Widgets. Input visibility/naming choices return to Inputs, then its Widgets row.
-Existing greeting, weather, shortcut and input preferences are unchanged. Scrollable Settings lists
-reserve 64 logical pixels below their last item for both remote focus and wheel scrolling,
-with a tighter 48-pixel spacing for Languages and Backgrounds.
-**Widgets → Greeting → Show widget** is the first row and hides only the greeting text, preserving the saved name,
-date and weather. Weather moves directly below the date when the greeting is hidden, without
-moving favorites or inputs. It defaults to enabled for existing and new installations.
-**Widgets → Date** contains **Show widget** (enabled by default) and **Date format**. Choose the
-existing localized weekday/month/day display (default), `DD.MM.YYYY`, `MM/DD/YYYY`, or `YYYY-MM-DD`.
-Choosing a format returns to its Date row; Back from Date restores its Widgets row. Hiding the
-date removes its reserved space above the greeting/weather and preserves the chosen format.
+**Settings → Widgets** has two rows: **Continue Watching** switches the Home row in place, and
+**Inputs** opens its subpage. Input visibility/naming choices return to Inputs, then its Widgets
+row. The greeting, date, weather and shortcut widgets of upstream Luma were removed in 4.0;
+their saved preferences are ignored. Scrollable Settings lists reserve 64 logical pixels below
+their last item for both remote focus and wheel scrolling, with a tighter 48-pixel spacing for
+Languages and Backgrounds.
 Lists render behind the fixed sidebar, navigation and background actions, without viewport clipping
 or edge fades. Pointer interaction and remote focus retain their safe content viewports.
-The **Greeting** subpage contains **Name** and **Clear name**. Selecting Name opens the text keyboard
-(the system keyboard on the TV) and the name is appended to the Home greeting ("Good evening, Ana.").
-Long greetings scale down to fit their existing single-line area, centred vertically without
-moving the weather summary or favorite cards. Short greetings retain their original size.
-The keyboard starts empty; closing it without a name preserves the saved value. Clear name removes
-it. Preferences are saved when the keyboard closes, including automatic system-keyboard dismissal.
-Back from Greeting restores its Widgets row; App names returns to General. Input name removal
-also uses **Clear name**.
+Input name removal uses **Clear name**.
 Choice checkmarks identify saved values, while the bright row fill identifies only the current focus.
 
 Home favorites form one horizontal strip, never a second row. Left/Right follows saved order,
@@ -336,38 +321,6 @@ Verify the QR code, phone drag/zoom, upload,
 TV selection/restart, normal/takeover access, cancellation and timeout on real hardware; desktop
 checks do not establish webOS jail networking permissions or TV/browser behavior.
 
-## Shortcut editing on a phone or computer
-
-**Settings → Widgets → Shortcuts → Configure** opens the same QR modal as the wallpaper
-upload, served by its own worker (`src/tile-editor.rs`). Both share `src/companion.rs`: interface
-choice, token, QR code, request parsing, Host/Origin checks and security headers are identical,
-including the ten-minute lifetime and invalidation on close, focus loss, hiding or exit. A page load
-needs about six requests, so a session accepts up to 256 instead of 64. The page is English, like
-the upload page.
-
-When the modal opens, the worker takes a copy of the saved tiles and serves `tiles.json` (tiles,
-choosable icons with their bundled SVG markup, and the limit). `POST save`, `remove` and `send`
-need the session token in `X-Luma-Token` and a JSON body of at most 4 KiB. Saves are validated with
-the preference validation rules (`clean_input_name`, `valid_tile_url`, `TILE_ICONS`, `TILE_LIMIT`,
-`new_tile_id`).
-Creation and editing are available only on this companion page, which uses a flat background.
-The TV lists saved shortcuts as selectable description rows matching HDMI settings. Pressing one
-opens a popup with **Test shortcut** and **Remove shortcut**; Back returns to the same row.
-The System version retains a separate muted, non-interactive surface. Removal clears the
-shortcut from preferences, favorites and hidden apps without attempting a platform uninstall.
-Each accepted companion change sends the complete list back to the launcher:
-new tiles join the end of the Home favorites, removed ones leave favorites and hidden apps, and
-preferences are saved. Accepted changes are revisioned and queued before replying to the page;
-reopening retains the worker's latest list until the launcher acknowledges every pending revision.
-Changes are applied even if the modal closed meanwhile, since the page was already told they were
-saved. The TV modal blocks other input, so the two editors never interleave.
-`send` makes the request from the TV with the same client as a tile press (five-second timeout, no
-redirects or proxy) without saving, and reports the result to the page.
-
-`pnpm test:tiles` checks the page helpers. Rust tests cover validation, the routes, header checks
-and session rotation over loopback; `await-tile-editor` waits for the modal's link in scripted runs.
-Verify scanning, editing and a test request against a real webhook on TV hardware.
-
 ## Splash images
 
 `pnpm assets` renders one 1920×1080 PNG per background into `.build/assets/splash/` from the shaded
@@ -470,7 +423,7 @@ Every curated logo has an app in `demo_inventory()`, including all 27 expanded s
 brands. Open them with `pnpm dev --script apps`, then scroll or search the Apps grid. A unit check
 keeps the SVG directory, curated catalogue and demo inventory aligned. `pnpm test:brands` renders
 every card through the actual desktop renderer and writes `.build/brands-gallery.png` for visual
-review. Like the other smoke scripts, it uses isolated preferences and no TV or real weather API.
+review. Like the other smoke scripts, it uses isolated preferences and no TV or real network service.
 The gallery also runs as part of `pnpm test:smoke`. Asset source/licence details are in [assets.md](assets.md).
 
 Live TV (`com.webos.app.livetv`) and Web Browser (`com.webos.app.browser`) also have dedicated
@@ -775,30 +728,34 @@ out of the last app, standby wake with the TV's chosen Quick Start+ setting, a f
 saved preferences and restoring LG Home. The broader webOS 6+ app compatibility statement does
 not establish Home-replacement support on older firmware.
 
-### "For You" row
+### "Continue Watching" row and the Favorites dock
 
-2:3 posters between the tabs and Favorites, all the same size and without motion; the focused
-title, genre and runtime appear in one line under the row. Favorites and the inputs move down
-`FOR_YOU_SHIFT` while the row shows and keep their position otherwise. The row shows when
-`show_for_you` is on (default; off in `Preferences::legacy_defaults`), the greeting, date and
-weather are off (they use the same space) and there are titles. Settings → Widgets → For You
-switches it in place.
+2:3 posters of the titles in progress in the owner's Stremio library, between the tabs and
+Favorites, all the same size and without motion; the focused title, episode and time left
+("S2 E3 · 30m left") appear in one line under the row, and a thin bar inside each poster shows
+how far it was watched. Favorites and the inputs move down `FOR_YOU_SHIFT` while the row shows
+and keep their position otherwise. The row shows when `show_for_you` is on (default; off in
+`Preferences::legacy_defaults`) and some title is in progress. Settings → Widgets → Continue
+Watching switches it in place. The public-catalogue "For You" row of 3.x was removed in 4.0; its
+card cache (`<preferences>.for-you-posters.json`) is deleted at startup.
 
-- Data: Stremio's public Cinemeta catalogs (`cinemeta-catalogs.strem.io/top/catalog/{movie,series}/top.json`,
-  no key or account), movies and series interleaved, at most 12 (`src/for_you.rs`). Only IMDb
-  ids (`tt` + digits) are kept; they name the image files and the launch parameters. Genres
-  are translated for Portuguese; other languages show Cinemeta's English names.
-- Fetching (`src/for-you-service.rs`): off the SDL thread, once per session with Home on screen
-  after the first frame, when the cache is older than 6 h. Catalogs never follow redirects and
-  are capped at 1 MiB. Posters (`images.metahub.space/poster/small/{id}/img`, 300×450) may
-  follow up to 3 redirects (new titles are rendered on `live.metahub.space`) and are capped at
-  512 KiB. They come as JPEG or WebP; the renderer picks its decoder from the `.jpg` name and
-  keeps a failed load for the session, so WebP is converted to JPEG on the worker and an image
-  is announced only after it was validated and renamed into place. The cache is
-  `<preferences>.for-you-posters.json` with images in `<preferences>.for-you-posters/`; images
-  of titles that left the list are deleted, and the first version's 16:9 cache
-  (`.for-you.json`, `.for-you/`) is removed at startup. Offline, the
-  cache is shown; with no cache the row is absent.
+- Key: a Stremio session key in `<preferences>.stremio-auth.json` (`{"authKey": "…"}`, written
+  by `scripts/stremio-login.sh`, mode 600 and owned like `preferences.json`). Without it the
+  row is absent. The key is never logged or dumped, and the password never reaches the TV.
+- Data (`src/for_you.rs`): `datastoreGet` for `libraryItem` on `api.strem.io/api`, read with
+  Stremio's own rule: movies and series with `timeOffset > 0` that are kept in the library or
+  were only watched (`temp`), most recent `lastWatched` first, at most 8. Only IMDb ids (`tt` +
+  digits) are kept; they name the image files and the launch parameters.
+- Fetching (`src/for-you-service.rs`): off the SDL thread, at most once a minute while Home is
+  on screen after the first frame, so coming back from Stremio shows where the owner stopped.
+  The library request never follows redirects and is capped at 4 MiB; an error answer (expired
+  or revoked session) keeps the row as it was. Posters (`images.metahub.space/poster/small/{id}/img`,
+  300×450) may follow up to 3 redirects (new titles are rendered on `live.metahub.space`) and are
+  capped at 512 KiB. They come as JPEG or WebP; the renderer picks its decoder from the `.jpg`
+  name and keeps a failed load for the session, so WebP is converted to JPEG on the worker and
+  an image is announced only after it was validated and renamed into place. Posters live in
+  `<preferences>.for-you-posters/`; those of titles that left the list are deleted, and a
+  poster saved in an earlier session is announced again without downloading it.
 - Stremio Cards is kept preloaded: 10 s after the first Home frame, and then at most every
   30 s while Home is on screen (Back inside Stremio Cards closes it), Luma checks `applicationManager/running` and, if it is
   missing, launches it with `preload: "full"` (hidden, like the preload manager). A card then
@@ -810,9 +767,14 @@ switches it in place.
   `{"type", "imdbId"}`), a separate Stremio build that opens `#/detail/{type}/{id}`. Without
   it, the official Stremio (`io.strem.tv`) opens with a notice naming the title: on webOS 6.5,
   version 1.13.3 ignored `contentTarget` in every tested form.
+- Favorites sit on a dock, like Apple TV's: one rounded surface in a slightly lighter black
+  (white at 7 % over the background) behind the Favorites row only. It stays put while the row
+  scrolls inside it and is absent when there are no favorites. Favorite cards are 2% larger than
+  upstream's (`HOME_TILE_WIDTH`/`HOME_TILE_HEIGHT`, same 25.6 gap; six fit whole before the fade);
+  the Apps grid keeps its size.
 - Scripted desktop runs (smokes) stay offline unless `--for-you-test-server
-  http://127.0.0.1:PORT` (loopback HTTP only) serves `/catalog/{movie,series}/top.json` and
-  `/poster/small/{id}/img`.
+  http://127.0.0.1:PORT` (loopback HTTP only) serves `/poster/small/{id}/img` and
+  `POST /api/datastoreGet`; `pnpm test:for-you` runs that smoke.
 
 ### Power off instead of the screensaver
 
@@ -964,7 +926,7 @@ initialized from normal choices once. Favoriting test cards exercises long Home 
 changing normal favorites. Ctrl+C then a normal launch restores real inventory/preferences.
 The placeholder cards are never a fallback for an inventory failure.
 
-## Storage, weather and languages
+## Storage and languages
 
 TV preferences live in an app-owned persistent directory outside the installed executable's
 payload. Startup probes `/media/developer/<appid>/`, `/media/developer/temp/<appid>/` and
@@ -974,12 +936,12 @@ on the persistent developer partition, not the reboot-cleared `/tmp`. No setting
 in `/tmp` and no system/app-payload permissions are widened. Root Home takeover reuses these
 same app-owned directories, preferring existing app-owned preferences over root-owned fallback
 files left by an earlier takeover. It does not merge or delete duplicate preferences. Preference
-and weather-cache saves retain the directory owner's UID/GID so the normal app can still read
+saves retain the directory owner's UID/GID so the normal app can still read
 them after Home is disabled. Symlink storage directories remain rejected. The executable Home
 method uses its source installation for storage precedence and legacy migration, not LG's
-`/usr/bin` executable path. Existing JSON preferences and a
-valid weather cache from beside this installation's old executable are imported once, without
-overwriting the chosen destination. Invalid existing preferences still report an error.
+`/usr/bin` executable path. Existing JSON preferences from
+beside this installation's old executable are imported once, without overwriting the chosen
+destination. Invalid existing preferences still report an error.
 Startup prints `Luma persistent storage:` with the chosen path. Desktop preview uses
 `$XDG_CONFIG_HOME/ncls-luma/preferences.json`, or `~/.config/ncls-luma/preferences.json`,
 separate from upstream Luma preferences. `--preferences PATH` isolates a manual run.
@@ -987,20 +949,10 @@ Invalid preference files report an error rather than being overwritten. Writes u
 temporary-file renames; use one instance per preferences file. Browser local storage is not
 migrated into native JSON preferences.
 
-Weather Location searches cities/postcodes only on explicit Search. Forecasts run when Home is
-visible, the widget enabled and a city configured. ureq/rustls uses embedded certificate roots,
-an eight-second timeout, no redirects/proxy and 256 KiB reply limits. Search/forecast/cache writes
-have separate workers and generation IDs, avoiding stale responses overwriting current state.
-Fresh Celsius readings are reused for 15 minutes; valid saved data lasts up to six hours and
-failure retries after five minutes. Unit changes convert unrounded cached Celsius immediately.
-Removing a city clears its cache. The `.weather.json` sidecar uses Unix-seconds timestamps.
-Mock servers accept only literal loopback HTTP origins and are refused in TV builds.
-
 `assets/messages.json` supplies Dutch, English, French, German, Italian, Polish, Portuguese (Brazil),
-Russian, Simplified Chinese, Spanish, Swedish, Traditional Chinese and Vietnamese, including locale formatting
-and weather labels. App/device names and saved city names remain real data. No geolocation,
-runtime font/translation services or telemetry are used. Weather attribution: Open-Meteo,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Russian, Simplified Chinese, Spanish, Swedish, Traditional Chinese and Vietnamese, including locale formatting.
+App and device names remain real data. No geolocation, runtime font/translation services or
+telemetry are used.
 
 ## Update availability
 
@@ -1035,10 +987,10 @@ prerelease than the pinned `.5` library, not a full Luma compatibility guarantee
 
 ## Checks and CI
 
-Rust behavior tests cover navigation, preferences, localization, rendering geometry and weather
-state without a TV. `tests/` scripts exercise actual desktop framebuffers and mock HTTP responses
-for navigation, persistence, pointer input, translations/CJK, weather limits/cache/races and
-profiling. They contact no live weather APIs or television. On Linux:
+Rust behavior tests cover navigation, preferences, localization, rendering geometry and
+Continue Watching without a TV. `tests/` scripts exercise actual desktop framebuffers and mock HTTP
+responses for navigation, persistence, pointer input, translations/CJK, Continue Watching and
+profiling. They contact no live network service or television. On Linux:
 
 ```sh
 pnpm format:check
@@ -1049,7 +1001,7 @@ xvfb-run -a pnpm test:smoke
 ```
 
 CI prepares checks, unit tests, native assets and the desktop binary once. Four independent
-jobs run navigation/rendering, the brand gallery, mocked weather and translations in parallel,
+jobs run navigation/rendering, the brand gallery, Continue Watching and translations in parallel,
 each with its own Xvfb display, scratch preferences and diagnostic artifact. They consume a
 same-run tar archive that preserves the binary's executable mode and use `LUMA_SMOKE_SKIP_BUILD=1`
 to avoid compiling the same executable again. Local smoke commands still build by default.
@@ -1151,7 +1103,7 @@ HTML alongside the feed and IPK, so the feed and its description must be publish
 
 Key modules: `state.rs` focus/preferences, `view.rs` geometry, `renderer.rs` GPU caches/draws,
 `font.rs` lazy metrics/outlines, `vector.rs` GPU mesh upload, `platform.rs` worker/inventory,
-`luna.rs` LS2, `weather*.rs` scheduling/HTTPS/cache, `storage.rs` atomic JSON, and `main.rs` SDL loop.
+`luna.rs` LS2, `for_you.rs`/`for-you-service.rs` Continue Watching, `storage.rs` atomic JSON, and `main.rs` SDL loop.
 
 ### Home-key routing on webOS 5/6 (#109)
 

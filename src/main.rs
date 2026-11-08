@@ -30,17 +30,11 @@ mod sleep;
 mod state;
 mod storage;
 mod text_rendering;
-#[path = "tile-editor.rs"]
-mod tile_editor;
 mod update;
 mod vector;
 mod view;
 mod wallpaper_cycle;
 mod wallpapers;
-mod weather;
-#[path = "weather-service.rs"]
-mod weather_service;
-mod webhook;
 #[cfg(all(feature = "webos", any(target_os = "linux", test)))]
 #[path = "webos-compat.rs"]
 mod webos_compat;
@@ -79,7 +73,6 @@ struct Options {
     capture_size: Option<Size>,
     diagnostics: Option<PathBuf>,
     profile_frames: Option<usize>,
-    weather_test_server: Option<String>,
     for_you_test_server: Option<String>,
     test_extra_apps: usize,
     test_update_version: Option<String>,
@@ -152,7 +145,6 @@ impl Options {
                     })
                 }
                 "--diagnostics" => result.diagnostics = Some(value.into()),
-                "--weather-test-server" => result.weather_test_server = Some(value),
                 "--for-you-test-server" => result.for_you_test_server = Some(value),
                 "--test-update-version" => result.test_update_version = Some(value),
                 "--test-extra-apps" => {
@@ -315,9 +307,7 @@ fn effects(
     state: &mut State,
     platform: &Platform,
     preferences: &std::path::Path,
-    weather: &weather_service::Service,
     wallpapers: &wallpapers::Service,
-    webhook: &webhook::Service,
     updates: &update::Worker,
 ) -> bool {
     for effect in effects {
@@ -364,7 +354,6 @@ fn effects(
                     }
                 }
             }
-            Effect::FireWebhook(tile) => webhook.send(tile),
             Effect::UpdateDownload(release) => updates.request(update::Request::Download(release)),
             Effect::Quit => return false,
             Effect::OpenTitle(item) => {
@@ -413,7 +402,6 @@ fn effects(
                     command,
                 });
             }
-            Effect::Weather(command) => weather.send(command),
         }
     }
     true
@@ -458,8 +446,6 @@ fn script(
                 state.keyboard_field
             } else {
                 match state.subpage {
-                    Some(state::Subpage::Greeting) => state::TextField::Name,
-                    Some(state::Subpage::WeatherLocation) => state::TextField::Location,
                     Some(state::Subpage::Input(_)) => state::TextField::InputName,
                     _ => state::TextField::Apps,
                 }
@@ -470,11 +456,8 @@ fn script(
             state.text(&action[5..]);
             vec![]
         }
-        "await-search" => vec![],
-        "await-weather" => vec![],
         "await-recents" => vec![],
         "await-upload" => vec![],
-        "await-tile-editor" => vec![],
         _ => return Err(format!("Unknown scripted action: {action}")),
     })
 }
@@ -523,80 +506,51 @@ fn input_refresh_active(state: &State, webos: bool, focused: bool, visible: bool
                 )))
 }
 
-/// Refreshes "For You" once per session when it is stale, only with Home on screen after the
-/// first frame, so the fetch never competes with startup.
+/// Reads "Continue Watching" at most once a minute, only with Home on screen after the first
+/// frame, so the fetch never competes with startup and returning from Stremio updates it.
 fn for_you_tick(state: &mut State, service: Option<&for_you_service::Service>, active: bool) {
     let Some(service) = service else { return };
-    let now = OffsetDateTime::now_utc().unix_timestamp();
-    let wanted = state.preferences.show_for_you
-        && !state.preferences.show_greeting
-        && !state.preferences.show_date
-        && !state.preferences.show_weather;
-    let cache = for_you::Cache {
-        fetched: state.for_you.fetched,
-        items: vec![],
-    };
+    let wanted = state.preferences.show_for_you;
     if active
         && wanted
         && state.page == state::Page::Home
-        && !state.for_you.requested
-        && !cache.fresh(now)
+        && state.for_you.resume_due(std::time::Instant::now())
     {
-        state.for_you.requested = true;
-        service.refresh(now);
+        service.resume();
     }
     while let Ok(response) = service.receiver.try_recv() {
         match response {
-            for_you_service::Response::Items(cache) => {
-                let ids: std::collections::HashSet<_> =
-                    cache.items.iter().map(|item| item.id.clone()).collect();
-                state.for_you.ready.retain(|id| ids.contains(id));
-                state.for_you.fetched = cache.fetched;
-                state.for_you.items = cache.items;
-                if let state::Target::ForYou(id) = &state.focus
-                    && !ids.contains(id)
-                    && let Some(first) = state.first_for_you()
-                {
-                    state.focus = first;
+            for_you_service::Response::Resume(items) => {
+                if state.for_you.items == items {
+                    continue;
                 }
+                state.for_you.items = items;
             }
             for_you_service::Response::Image(id) => {
                 state.for_you.ready.insert(id);
+                state.dirty = true;
+                continue;
             }
+        }
+        let ids: std::collections::HashSet<_> = state
+            .for_you
+            .items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        state.for_you.ready.retain(|id| ids.contains(id));
+        if let state::Target::ForYou(id) = &state.focus
+            && !ids.contains(id)
+        {
+            state.focus = state
+                .first_for_you()
+                .unwrap_or_else(|| state.first_content());
         }
         state.dirty = true;
     }
 }
 
 use for_you::{STREMIO, STREMIO_CARDS};
-
-fn weather_tick(state: &mut State, service: &weather_service::Service, visible: bool) {
-    let now = OffsetDateTime::now_utc().unix_timestamp();
-    let (command, changed) = state.weather.sync(
-        &state.preferences,
-        visible && state.page == state::Page::Home,
-        now,
-    );
-    state.dirty |= changed;
-    service.generations(state.weather.generations());
-    if let Some(command) = command {
-        service.send(command);
-    }
-    while let Ok(response) = service.receiver.try_recv() {
-        match response {
-            weather_service::Response::Search { id, result } => {
-                state.dirty |= state.weather.accept_search(id, result)
-            }
-            weather_service::Response::Forecast { id, key, result } => {
-                let (changed, command) = state.weather.accept_forecast(id, &key, result, now);
-                state.dirty |= changed;
-                if let Some(command) = command {
-                    service.send(command);
-                }
-            }
-        }
-    }
-}
 
 fn scripted_click(
     sdl: &sdl2::Sdl,
@@ -781,7 +735,6 @@ fn run() -> Result<(), String> {
     // Scripted desktop captures must never open a server on the real LAN.
     let mut wallpaper_service =
         wallpapers::Service::new(&preferences_path, !webos && !options.script.is_empty())?;
-    let mut tile_editor_service = tile_editor::Service::new(!webos && !options.script.is_empty())?;
     if options.test_extra_apps > 0 {
         eprintln!(
             "Luma scroll preview: explicit {}-app expansion; preferences {}",
@@ -789,37 +742,25 @@ fn run() -> Result<(), String> {
             preferences_path.display()
         );
     }
-    if webos && options.weather_test_server.is_some() {
-        return Err("Weather test servers are only available in desktop builds".into());
-    }
-    let weather_cache = weather_service::cache_path(&preferences_path);
-    state.weather.cache = weather_service::load_cache(&weather_cache);
-    let weather_service = weather_service::Service::new(
-        weather_service::Client::new(options.weather_test_server.as_deref())?,
-        weather_cache,
-    );
     if webos && options.for_you_test_server.is_some() {
         return Err("For You test servers are only available in desktop builds".into());
     }
     for_you_service::forget_legacy(&preferences_path);
-    let for_you_cache = for_you_service::cache_path(&preferences_path);
     let for_you_images = for_you_service::image_dir(&preferences_path);
-    let (cached, ready) = for_you_service::load(&for_you_cache, &for_you_images);
-    if let Some(cached) = cached {
-        state.for_you.fetched = cached.fetched;
-        state.for_you.items = cached.items;
-    }
-    state.for_you.ready = ready;
     state.for_you.images = for_you_images.clone();
     // Scripted desktop runs (smokes) stay offline unless given a loopback test server.
-    let for_you_service = (webos
-        || options.for_you_test_server.is_some()
-        || options.script.is_empty())
-    .then(|| {
-        for_you_service::Client::new(options.for_you_test_server.as_deref())
-            .map(|client| for_you_service::Service::new(client, for_you_cache, for_you_images))
-    })
-    .transpose()?;
+    let for_you_service =
+        (webos || options.for_you_test_server.is_some() || options.script.is_empty())
+            .then(|| {
+                for_you_service::Client::new(options.for_you_test_server.as_deref()).map(|client| {
+                    for_you_service::Service::new(
+                        client,
+                        for_you_images,
+                        for_you_service::auth_path(&preferences_path),
+                    )
+                })
+            })
+            .transpose()?;
     // As Home on the TV, power off instead of leaving LG's screensaver clock on screen.
     if webos && options.webos_home {
         platform::watch_screensaver();
@@ -829,16 +770,13 @@ fn run() -> Result<(), String> {
         webos,
         options.preferences.is_none() && options.test_extra_apps == 0,
     );
-    let webhook_service = webhook::Service::new();
     let update_service = update::Service::new(public_update_checks);
     effects(
         vec![Effect::Refresh],
         &mut state,
         &platform,
         &preferences_path,
-        &weather_service,
         &wallpaper_service,
-        &webhook_service,
         &updates,
     );
     platform.sync_splash(state.preferences.splash_background());
@@ -1132,47 +1070,6 @@ fn run() -> Result<(), String> {
                 _ => {}
             }
         }
-        tile_editor_service.set_active(
-            focused && visible && matches!(state.overlay, Some(Overlay::TileEditor)),
-            &state.preferences.custom_tiles,
-        );
-        while let Ok(event) = tile_editor_service.receiver.try_recv() {
-            match event {
-                // Applied even after the dialog closed: the phone was already told it saved.
-                tile_editor::Event::Tiles(revision, tiles) => {
-                    let pending = state.replace_tiles(tiles);
-                    tile_editor_service.acknowledge(revision);
-                    running &= effects(
-                        pending,
-                        &mut state,
-                        &platform,
-                        &preferences_path,
-                        &weather_service,
-                        &wallpaper_service,
-                        &webhook_service,
-                        &updates,
-                    );
-                }
-                tile_editor::Event::Session(generation, result)
-                    if generation == tile_editor_service.generation()
-                        && matches!(state.overlay, Some(Overlay::TileEditor)) =>
-                {
-                    if let Err(error) = &result {
-                        eprintln!("Luma tile editor: {error}");
-                    }
-                    state.tile_editor = Some(result);
-                    state.dirty = true;
-                }
-                tile_editor::Event::Ended(generation)
-                    if generation == tile_editor_service.generation()
-                        && matches!(state.overlay, Some(Overlay::TileEditor)) =>
-                {
-                    state.back();
-                    state.notify(state.preferences.language.t("tileEditorEnded"));
-                }
-                _ => {}
-            }
-        }
         state.dirty |= assets.artwork.poll();
         let unix = state::unix_now();
         let startup_cycle = wallpaper_cycle::startup_due(
@@ -1284,9 +1181,7 @@ fn run() -> Result<(), String> {
                         &mut state,
                         &platform,
                         &preferences_path,
-                        &weather_service,
                         &wallpaper_service,
-                        &webhook_service,
                         &updates,
                     );
                 }
@@ -1309,27 +1204,12 @@ fn run() -> Result<(), String> {
                         &mut state,
                         &platform,
                         &preferences_path,
-                        &weather_service,
                         &wallpaper_service,
-                        &webhook_service,
                         &updates,
                     );
                 }
             }
         }
-        while let Ok(webhook::Response::Done { title, result }) =
-            webhook_service.receiver.try_recv()
-        {
-            let key = match result {
-                Ok(()) => "tileSent",
-                Err(error) => {
-                    eprintln!("Luma webhook {title}: {error}");
-                    "tileFailed"
-                }
-            };
-            state.notify(state.preferences.language.format(key, &[("tile", &title)]));
-        }
-        weather_tick(&mut state, &weather_service, visible);
         for_you_tick(
             &mut state,
             for_you_service.as_ref(),
@@ -1445,14 +1325,10 @@ fn run() -> Result<(), String> {
                     ..
                 } if window_id == window.id() => match win_event {
                     WindowEvent::Hidden | WindowEvent::Minimized => {
-                        if matches!(
-                            state.overlay,
-                            Some(Overlay::WallpaperUpload | Overlay::TileEditor)
-                        ) {
+                        if matches!(state.overlay, Some(Overlay::WallpaperUpload)) {
                             state.back();
                         }
                         wallpaper_service.set_active(false);
-                        tile_editor_service.set_active(false, &[]);
                         visible = false;
                         focused = false;
                         press = None;
@@ -1464,14 +1340,10 @@ fn run() -> Result<(), String> {
                     }
                     WindowEvent::FocusLost => {
                         if webos {
-                            if matches!(
-                                state.overlay,
-                                Some(Overlay::WallpaperUpload | Overlay::TileEditor)
-                            ) {
+                            if matches!(state.overlay, Some(Overlay::WallpaperUpload)) {
                                 state.back();
                             }
                             wallpaper_service.set_active(false);
-                            tile_editor_service.set_active(false, &[]);
                         }
                         focused = false;
                         press = None;
@@ -1709,17 +1581,11 @@ fn run() -> Result<(), String> {
                 &mut state,
                 &platform,
                 &preferences_path,
-                &weather_service,
                 &wallpaper_service,
-                &webhook_service,
                 &updates,
             );
             wallpaper_service
                 .set_active(running && wallpaper_upload_active(&state, webos, focused, visible));
-            tile_editor_service.set_active(
-                running && focused && visible && matches!(state.overlay, Some(Overlay::TileEditor)),
-                &state.preferences.custom_tiles,
-            );
             if press
                 .as_ref()
                 .is_some_and(|p| !p.held && p.target != state.focus)
@@ -1744,9 +1610,7 @@ fn run() -> Result<(), String> {
                 &mut state,
                 &platform,
                 &preferences_path,
-                &weather_service,
                 &wallpaper_service,
-                &webhook_service,
                 &updates,
             );
         }
@@ -1761,15 +1625,10 @@ fn run() -> Result<(), String> {
         if !state.loading
             && frame.is_multiple_of(3)
             && !options.script.front().is_some_and(|action| {
-                (action == "await-search" && state.weather.searching)
-                    || (action == "await-weather" && state.weather.fetching())
-                    || (action == "await-recents" && state.recents.pending.is_some())
+                (action == "await-recents" && state.recents.pending.is_some())
                     || (action == "await-upload"
                         && matches!(state.overlay, Some(Overlay::WallpaperUpload))
                         && state.wallpaper_upload.is_none())
-                    || (action == "await-tile-editor"
-                        && matches!(state.overlay, Some(Overlay::TileEditor))
-                        && state.tile_editor.is_none())
             })
             && let Some(action) = options.script.pop_front()
         {
@@ -1784,19 +1643,13 @@ fn run() -> Result<(), String> {
                     &mut state,
                     &platform,
                     &preferences_path,
-                    &weather_service,
                     &wallpaper_service,
-                    &webhook_service,
                     &updates,
                 );
             }
         }
         wallpaper_service
             .set_active(running && wallpaper_upload_active(&state, webos, focused, visible));
-        tile_editor_service.set_active(
-            running && focused && visible && matches!(state.overlay, Some(Overlay::TileEditor)),
-            &state.preferences.custom_tiles,
-        );
         // state.loading stays set meanwhile, so focus/relaunch refreshes do not add requests.
         if inventory_retry.is_some_and(|at| Instant::now() >= at) {
             inventory_retry = None;
@@ -1812,7 +1665,6 @@ fn run() -> Result<(), String> {
         if input_refresh.due(Instant::now(), inputs_active) {
             platform.send(Request::RefreshInputs);
         }
-        weather_tick(&mut state, &weather_service, visible);
         // SDL-webOS disables text input when its own panel is dismissed, even
         // if it did not forward a Back/Return key to the application.
         if text_active
@@ -1826,9 +1678,7 @@ fn run() -> Result<(), String> {
                 &mut state,
                 &platform,
                 &preferences_path,
-                &weather_service,
                 &wallpaper_service,
-                &webhook_service,
                 &updates,
             );
         }
@@ -2044,7 +1894,7 @@ fn run() -> Result<(), String> {
         let state = serde_json::json!({ "page": state.page, "focus": state.focus, "query": state.query,
             "filter": state.filter, "preferences": state.preferences, "apps": state.apps().iter().map(|a| &a.id).collect::<Vec<_>>(),
             "update_status": state.update_status, "available_update": state.available_update,
-            "error": state.error, "scroll": state.scroll, "home_scroll": state.home_scroll, "subpage": state.subpage, "modal": state.overlay.is_some(), "weather": state.weather,
+            "error": state.error, "scroll": state.scroll, "home_scroll": state.home_scroll, "subpage": state.subpage, "modal": state.overlay.is_some(),
             "inventory": state.inventory.apps,
             "recents": state.recents.entries, "recents_pending": state.recents.pending, "recents_error": state.recents.error, "recents_visibility": state.recents.visibility,
             "ui_text": scene.draw.iter().filter_map(|draw| match draw { renderer::Draw::Text(value, ..) => Some(value), _ => None }).collect::<Vec<_>>() });

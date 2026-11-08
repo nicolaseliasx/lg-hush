@@ -143,14 +143,6 @@ fn tv_path_in(mut candidates: [PathBuf; 3], legacy: &Path, user: u32) -> Result<
                     ));
                 }
             }
-            let old_cache = crate::weather_service::cache_path(legacy);
-            let cache = crate::weather_service::cache_path(&path);
-            if !cache.exists()
-                && let Some(reading) = crate::weather_service::load_cache(&old_cache)
-                && let Err(error) = crate::weather_service::save_cache(&cache, &reading)
-            {
-                eprintln!("Luma weather cache migration: {error}");
-            }
         }
         eprintln!("Luma persistent storage: {}", directory.display());
         return Ok(path);

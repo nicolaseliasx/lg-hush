@@ -372,13 +372,17 @@ fn slashless_session_urls_redirect_to_the_local_asset_base() {
 #[test]
 fn browser_assets_are_local_and_a_real_http_upload_needs_no_name() {
     let fixture = Fixture::new();
+    // The page carries no logo: the old logo route is gone.
+    let (logo, _) = http(&fixture.wallpapers(), |host| {
+        format!("GET /secret/luma-mark.svg HTTP/1.1\r\nHost: {host}\r\n\r\n").into_bytes()
+    });
+    assert!(logo.starts_with("HTTP/1.1 404"), "{logo}");
     for route in [
         "",
         "app.js",
         "crop.js",
         "storage.js",
         "app.css",
-        "luma-mark.svg",
         "info.json",
     ] {
         let (response, changed) = http(&fixture.wallpapers(), |host| {
@@ -388,11 +392,6 @@ fn browser_assets_are_local_and_a_real_http_upload_needs_no_name() {
         assert!(response.contains("Cache-Control: no-store"));
         assert!(response.contains("frame-ancestors 'none'"));
         assert!(!changed);
-        if route == "luma-mark.svg" {
-            assert!(response.starts_with("HTTP/1.1 200"));
-            assert!(response.contains("image/svg+xml"));
-            assert!(response.contains("<svg"));
-        }
         if route == "info.json" {
             assert!(response.starts_with("HTTP/1.1 200"));
             assert!(response.contains(&fixture.wallpapers().to_string_lossy().to_string()));

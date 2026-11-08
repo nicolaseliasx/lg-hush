@@ -87,14 +87,6 @@ impl Language {
             .position(|language| *language == self)
             .unwrap()
     }
-    /// Open-Meteo geocoding exposes one Chinese locale, not a script-specific variant.
-    pub fn geocoding_code(self) -> &'static str {
-        if self == Self::ZhTw {
-            "zh"
-        } else {
-            self.code()
-        }
-    }
     pub fn t(self, key: &str) -> &str {
         messages()
             .get(key)
@@ -116,331 +108,6 @@ impl Language {
             "Gaming" => self.t("categoryGaming"),
             "Utilities" => self.t("categoryUtilities"),
             _ => self.t("categoryUtilities"),
-        }
-    }
-    pub fn greeting(self, hour: u8, name: &str) -> String {
-        let key = match hour {
-            0..=4 => "greetingNight",
-            5..=11 => "morning",
-            12..=17 => "afternoon",
-            _ => "evening",
-        };
-        let name = name.trim();
-        if name.is_empty() {
-            self.t(key).to_owned()
-        } else {
-            self.format(&format!("{key}Named"), &[("name", name)])
-        }
-    }
-    pub fn date(self, now: OffsetDateTime) -> String {
-        let weekday = now.weekday().number_days_from_monday() as usize;
-        let month = now.month() as usize - 1;
-        match self {
-            Self::En => format!(
-                "{}, {} {}",
-                [
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday"
-                ][weekday],
-                [
-                    "January",
-                    "February",
-                    "March",
-                    "April",
-                    "May",
-                    "June",
-                    "July",
-                    "August",
-                    "September",
-                    "October",
-                    "November",
-                    "December"
-                ][month],
-                now.day()
-            )
-            .to_uppercase(),
-            Self::De => format!(
-                "{}, {}. {}",
-                [
-                    "Montag",
-                    "Dienstag",
-                    "Mittwoch",
-                    "Donnerstag",
-                    "Freitag",
-                    "Samstag",
-                    "Sonntag"
-                ][weekday],
-                now.day(),
-                [
-                    "Januar",
-                    "Februar",
-                    "März",
-                    "April",
-                    "Mai",
-                    "Juni",
-                    "Juli",
-                    "August",
-                    "September",
-                    "Oktober",
-                    "November",
-                    "Dezember"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Zh | Self::ZhTw => format!(
-                "{}月{}日星期{}",
-                now.month() as u8,
-                now.day(),
-                ["一", "二", "三", "四", "五", "六", "日"][weekday]
-            ),
-            Self::Es => format!(
-                "{}, {} de {}",
-                [
-                    "lunes",
-                    "martes",
-                    "miércoles",
-                    "jueves",
-                    "viernes",
-                    "sábado",
-                    "domingo"
-                ][weekday],
-                now.day(),
-                [
-                    "enero",
-                    "febrero",
-                    "marzo",
-                    "abril",
-                    "mayo",
-                    "junio",
-                    "julio",
-                    "agosto",
-                    "septiembre",
-                    "octubre",
-                    "noviembre",
-                    "diciembre"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Pt => format!(
-                "{}, {} de {}",
-                [
-                    "segunda-feira",
-                    "terça-feira",
-                    "quarta-feira",
-                    "quinta-feira",
-                    "sexta-feira",
-                    "sábado",
-                    "domingo"
-                ][weekday],
-                now.day(),
-                [
-                    "janeiro",
-                    "fevereiro",
-                    "março",
-                    "abril",
-                    "maio",
-                    "junho",
-                    "julho",
-                    "agosto",
-                    "setembro",
-                    "outubro",
-                    "novembro",
-                    "dezembro"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::It => format!(
-                "{} {} {}",
-                [
-                    "lunedì",
-                    "martedì",
-                    "mercoledì",
-                    "giovedì",
-                    "venerdì",
-                    "sabato",
-                    "domenica"
-                ][weekday],
-                now.day(),
-                [
-                    "gennaio",
-                    "febbraio",
-                    "marzo",
-                    "aprile",
-                    "maggio",
-                    "giugno",
-                    "luglio",
-                    "agosto",
-                    "settembre",
-                    "ottobre",
-                    "novembre",
-                    "dicembre"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Ru => format!(
-                "{}, {} {}",
-                [
-                    "понедельник",
-                    "вторник",
-                    "среда",
-                    "четверг",
-                    "пятница",
-                    "суббота",
-                    "воскресенье"
-                ][weekday],
-                now.day(),
-                [
-                    "января",
-                    "февраля",
-                    "марта",
-                    "апреля",
-                    "мая",
-                    "июня",
-                    "июля",
-                    "августа",
-                    "сентября",
-                    "октября",
-                    "ноября",
-                    "декабря"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Pl => format!(
-                "{}, {} {}",
-                [
-                    "poniedziałek",
-                    "wtorek",
-                    "środa",
-                    "czwartek",
-                    "piątek",
-                    "sobota",
-                    "niedziela"
-                ][weekday],
-                now.day(),
-                [
-                    "stycznia",
-                    "lutego",
-                    "marca",
-                    "kwietnia",
-                    "maja",
-                    "czerwca",
-                    "lipca",
-                    "sierpnia",
-                    "września",
-                    "października",
-                    "listopada",
-                    "grudnia"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Fr => format!(
-                "{} {} {}",
-                [
-                    "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"
-                ][weekday],
-                match now.day() {
-                    1 => "1er".to_owned(),
-                    day => day.to_string(),
-                },
-                [
-                    "janvier",
-                    "février",
-                    "mars",
-                    "avril",
-                    "mai",
-                    "juin",
-                    "juillet",
-                    "août",
-                    "septembre",
-                    "octobre",
-                    "novembre",
-                    "décembre"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Vi => format!(
-                "{}, {} {}",
-                [
-                    "thứ hai",
-                    "thứ ba",
-                    "thứ tư",
-                    "thứ năm",
-                    "thứ sáu",
-                    "thứ bảy",
-                    "chủ nhật"
-                ][weekday],
-                now.day(),
-                [
-                    "tháng 1",
-                    "tháng 2",
-                    "tháng 3",
-                    "tháng 4",
-                    "tháng 5",
-                    "tháng 6",
-                    "tháng 7",
-                    "tháng 8",
-                    "tháng 9",
-                    "tháng 10",
-                    "tháng 11",
-                    "tháng 12"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Nl => format!(
-                "{} {} {}",
-                [
-                    "maandag",
-                    "dinsdag",
-                    "woensdag",
-                    "donderdag",
-                    "vrijdag",
-                    "zaterdag",
-                    "zondag"
-                ][weekday],
-                now.day(),
-                [
-                    "januari",
-                    "februari",
-                    "maart",
-                    "april",
-                    "mei",
-                    "juni",
-                    "juli",
-                    "augustus",
-                    "september",
-                    "oktober",
-                    "november",
-                    "december"
-                ][month]
-            )
-            .to_uppercase(),
-            Self::Sv => format!(
-                "{} {} {}",
-                [
-                    "måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag"
-                ][weekday],
-                now.day(),
-                [
-                    "januari",
-                    "februari",
-                    "mars",
-                    "april",
-                    "maj",
-                    "juni",
-                    "juli",
-                    "augusti",
-                    "september",
-                    "oktober",
-                    "november",
-                    "december"
-                ][month]
-            )
-            .to_uppercase(),
         }
     }
     pub fn clock(self, now: OffsetDateTime, hour24: bool, seconds: bool) -> String {
@@ -511,7 +178,6 @@ mod tests {
         assert_eq!(Language::ALL[Language::Zh.index() + 1], Language::ZhTw);
         assert_eq!(Language::ZhTw.name(), "繁體中文");
         assert_eq!(Language::ZhTw.code(), "zh-tw");
-        assert_eq!(Language::ZhTw.geocoding_code(), "zh");
         for code in ["zh-tw", "zh-TW", "zh-Hant"] {
             let preferences: crate::model::Preferences =
                 serde_json::from_value(serde_json::json!({"language": code})).unwrap();
@@ -526,10 +192,8 @@ mod tests {
             &time::format_description::well_known::Rfc3339,
         )
         .unwrap();
-        assert_eq!(Language::ZhTw.date(now), "10月21日星期三");
         assert_eq!(Language::ZhTw.clock(now, false, false), "下午8:41");
         assert_eq!(Language::ZhTw.clock(now, false, true), "下午8:41:00");
-        assert_eq!(Language::ZhTw.greeting(20, "小明"), "小明，晚安。");
     }
 
     #[test]
@@ -650,107 +314,39 @@ mod tests {
             Language::Fr.format("favoriteAdded", &[("app", "Netflix")]),
             "Netflix fait maintenant partie de vos favoris."
         );
-        assert_eq!(Language::Fr.greeting(2, "Ana"), "Toujours debout, Ana ?");
         assert_eq!(
             Language::Vi.format("favoriteAdded", &[("app", "Netflix")]),
             "Đã thêm Netflix vào mục ưa thích."
         );
-        assert_eq!(Language::Vi.greeting(2, "Ana"), "Vẫn chưa ngủ sao, Ana?");
         assert_eq!(
             Language::Nl.format("favoriteAdded", &[("app", "Netflix")]),
             "Netflix toegevoegd aan favorieten."
         );
-        assert_eq!(Language::Nl.greeting(2, "Ana"), "Nog wakker, Ana?");
         assert_eq!(Language::Nl.category("Gaming"), "Games");
         assert_eq!(
             Language::Sv.format("favoriteAdded", &[("app", "Netflix")]),
             "Netflix har lagts till bland favoriterna."
         );
-        assert_eq!(Language::Sv.greeting(2, "Ana"), "Fortfarande uppe, Ana?");
         assert_eq!(Language::Sv.category("Gaming"), "Spel");
         assert_eq!(Language::De.category("Gaming"), "Spiele");
-        assert_eq!(Language::En.greeting(15, ""), "Good afternoon.");
-        assert_eq!(Language::En.greeting(15, "  Ana "), "Good afternoon, Ana.");
-        assert_eq!(Language::Es.greeting(2, "Ana"), "¿Aún despiertos, Ana?");
-        assert_eq!(Language::Zh.greeting(20, "小明"), "小明，晚上好。");
     }
     #[test]
-    fn clock_and_date_follow_the_selected_locale() {
+    fn clock_follows_the_selected_locale() {
         let now = OffsetDateTime::parse(
             "2026-10-21T20:41:00+02:00",
             &time::format_description::well_known::Rfc3339,
         )
         .unwrap();
-        assert_eq!(Language::De.date(now), "MITTWOCH, 21. OKTOBER");
-        assert_eq!(Language::Es.date(now), "MIÉRCOLES, 21 DE OCTUBRE");
-        assert_eq!(Language::Pt.date(now), "QUARTA-FEIRA, 21 DE OUTUBRO");
-        assert_eq!(Language::Zh.date(now), "10月21日星期三");
-        assert_eq!(Language::Ru.date(now), "СРЕДА, 21 ОКТЯБРЯ");
         assert_eq!(Language::Ru.clock(now, true, false), "20:41");
-        assert_eq!(Language::Pl.date(now), "ŚRODA, 21 PAŹDZIERNIKA");
         assert_eq!(Language::Pl.clock(now, true, false), "20:41");
-        assert_eq!(Language::Fr.date(now), "MERCREDI 21 OCTOBRE");
         assert_eq!(Language::Fr.clock(now, true, false), "20:41");
-        assert_eq!(Language::Vi.date(now), "THỨ TƯ, 21 THÁNG 10");
         assert_eq!(Language::Vi.clock(now, true, false), "20:41");
-        assert_eq!(Language::Nl.date(now), "WOENSDAG 21 OKTOBER");
         assert_eq!(Language::Nl.clock(now, true, false), "20:41");
-        assert_eq!(Language::Sv.date(now), "ONSDAG 21 OKTOBER");
         assert_eq!(Language::Sv.clock(now, true, false), "20:41");
         assert_eq!(Language::Zh.clock(now, false, false), "下午8:41");
         assert_eq!(Language::Zh.clock(now, false, true), "下午8:41:00");
         assert_eq!(Language::En.clock(now, true, false), "20:41");
         assert_eq!(Language::En.clock(now, true, true), "20:41:00");
         assert_eq!(Language::En.clock(now, false, true), "8:41:00 PM");
-    }
-    #[test]
-    fn portuguese_dates_include_accented_names_and_handle_leap_days() {
-        for (date, expected) in [
-            ("2024-02-29T00:05:00-03:00", "QUINTA-FEIRA, 29 DE FEVEREIRO"),
-            ("2026-03-03T12:00:00-03:00", "TERÇA-FEIRA, 3 DE MARÇO"),
-            ("2026-10-24T20:41:00-03:00", "SÁBADO, 24 DE OUTUBRO"),
-        ] {
-            let now = OffsetDateTime::parse(date, &time::format_description::well_known::Rfc3339)
-                .unwrap();
-            assert_eq!(Language::Pt.date(now), expected);
-        }
-    }
-    #[test]
-    fn french_dates_use_the_ordinal_first_day_and_accented_months() {
-        for (date, expected) in [
-            ("2026-08-01T09:00:00+02:00", "SAMEDI 1ER AOÛT"),
-            ("2026-02-14T12:00:00+01:00", "SAMEDI 14 FÉVRIER"),
-            ("2026-12-25T20:41:00+01:00", "VENDREDI 25 DÉCEMBRE"),
-        ] {
-            let now = OffsetDateTime::parse(date, &time::format_description::well_known::Rfc3339)
-                .unwrap();
-            assert_eq!(Language::Fr.date(now), expected);
-        }
-    }
-
-    #[test]
-    fn vietnamese_dates_cover_leap_days_and_weekend_names() {
-        for (date, expected) in [
-            ("2024-02-29T00:05:00+07:00", "THỨ NĂM, 29 THÁNG 2"),
-            ("2026-10-24T12:00:00+07:00", "THỨ BẢY, 24 THÁNG 10"),
-            ("2026-11-01T20:41:00+07:00", "CHỦ NHẬT, 1 THÁNG 11"),
-        ] {
-            let now = OffsetDateTime::parse(date, &time::format_description::well_known::Rfc3339)
-                .unwrap();
-            assert_eq!(Language::Vi.date(now), expected);
-        }
-    }
-
-    #[test]
-    fn dutch_dates_cover_leap_days_and_month_boundaries() {
-        for (date, expected) in [
-            ("2024-02-29T00:05:00+01:00", "DONDERDAG 29 FEBRUARI"),
-            ("2026-05-01T12:00:00+02:00", "VRIJDAG 1 MEI"),
-            ("2026-12-27T20:41:00+01:00", "ZONDAG 27 DECEMBER"),
-        ] {
-            let now = OffsetDateTime::parse(date, &time::format_description::well_known::Rfc3339)
-                .unwrap();
-            assert_eq!(Language::Nl.date(now), expected);
-        }
     }
 }
