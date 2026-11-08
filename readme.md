@@ -45,7 +45,7 @@ before enabling anything.
 Short version, from a computer on the same network as your rooted TV:
 
 ```sh
-scripts/install-tv.sh TV_IP dist/cc.ncls.luma_3.0.0_arm.ipk
+scripts/install-tv.sh TV_IP dist/cc.ncls.luma_4.0.0_arm.ipk
 ```
 
 The full guide, including prerequisites, enabling the Home replacement, the debloat and how to
@@ -83,7 +83,7 @@ pnpm run package
 Output:
 
 ```text
-dist/cc.ncls.luma_3.0.0_arm.ipk
+dist/cc.ncls.luma_4.0.0_arm.ipk
 dist/sha256sums
 dist/repo.json
 ```
