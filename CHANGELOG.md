@@ -1,4 +1,24 @@
-# lg-luma
+# lg-hush
+
+## 3.0.0
+
+### Major Changes
+
+- ea3cf66: Install the fork as `cc.ncls.luma`, separate its Home and preferences state from
+  the original Luma, and disable upstream updates until the fork has its own feed.
+
+### Minor Changes
+
+- deb7ce5: Add an optional "For You" row on Home: movie and series posters from the public Stremio catalogue (Cinemeta), cached on disk and shown only while the greeting, date and weather are off. A card opens Stremio Cards when installed, otherwise the official Stremio app with the title to search for.
+- cef3174: Add a read-only `luma-helper diagnose` command that reports the webOS version, root status, available capabilities and why the Home replacement is possible or blocked, without changing anything. Its verdict and method follow the same manifest criterion and conflict checks as `home.sh enable`.
+- a38b80d: Add `luma-helper tune apply|restore|status`, a reversible performance debloat for the Home replacement (LG preloads and services switched off with RAM-only mounts, LG ad hosts blocked in a RAM copy of `/etc/hosts`), plus a faster cold boot and no Magic Remote cursor when returning Home.
+- deb7ce5: When Luma is the Home, power the TV off as soon as the LG screensaver state starts, instead of showing the clock indefinitely. With Quick Start+ on this is a real standby that wakes straight into Luma.
+- ea3cf66: Start with a pure black "Onyx" wallpaper and hide the weather, greeting and date widgets by default. Weather now turns on only when explicitly set to `true`.
+- deb7ce5: Keep an installed Stremio Cards (`cc.ncls.stremiocards`) preloaded while Home is on screen so a "For You" card opens in about 2 s, and hide it from the Recent apps panel. Recent apps cards are drawn at 60% size.
+
+### Patch Changes
+
+- 8ebd21d: Say in Settings → System that updates are turned off in this version, and stop promising updates in the Homebrew description.
 
 ## 2.16.2
 

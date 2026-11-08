@@ -7,7 +7,7 @@ remain.
 1. **Validate** on the pinned toolchain: `pnpm format:check`, `pnpm check`, `pnpm test`, `pnpm assets`,
    `pnpm test:smoke` (the main smoke takes several minutes and must run on an otherwise idle machine).
 2. **Version.** Every release-worthy change has a file in `.changeset/` (`pnpm changeset`). Run
-   `pnpm version:release`: it consumes them, bumps `package.json`, `appinfo.json`, `Cargo.toml`,
+   `scripts/build-ipk-docker.sh version` (or `pnpm version:release` on Node 22+): it consumes them, bumps `package.json`, `appinfo.json`, `Cargo.toml`,
    `Cargo.lock` and the IPK names in `readme.md`, and rewrites `CHANGELOG.md`. Check with
    `pnpm version:check`, then commit.
 3. **Build** the package from the committed tree: `scripts/build-ipk-docker.sh`. It writes
